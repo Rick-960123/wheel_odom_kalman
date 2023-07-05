@@ -1,0 +1,49 @@
+{
+    "configurations": [
+        {
+            "browse": {
+                "databaseFilename": "",
+                "limitSymbolsToIncludedHeaders": true
+            },
+            "includePath": [
+                "/home/cnh/ZROS/devel/include/**",
+                "/opt/ros/melodic/include/**",
+                "/home/cnh/ZROS/src/computing/planning/motion/packages/attitude_correction/include/**",
+                "/home/cnh/ZROS/src/computing/planning/motion/packages/automatic_parking/include/**",
+                "/home/cnh/ZROS/src/external_support/base_driver/include/**",
+                "/home/cnh/ZROS/src/sensing/drivers/lidar/packages/ce30a_ros/include/**",
+                "/home/cnh/ZROS/src/external_support/cleaning_path_planning/include/**",
+                "/home/cnh/ZROS/src/external_support/currency_serial/include/**",
+                "/home/cnh/ZROS/src/external_support/zr_msgs/include/**",
+                "/home/cnh/ZROS/src/external_support/enn/include/**",
+                "/home/cnh/ZROS/src/computing/perception/detection/packages/euclidean_cluster/include/**",
+                "/home/cnh/ZROS/src/computing/perception/localization/lib/fast_pcl/filters/include/**",
+                "/home/cnh/ZROS/src/computing/planning/motion/packages/path_planner/include/**",
+                "/home/cnh/ZROS/src/path_planner_manual/include/**",
+                "/home/cnh/ZROS/src/computing/planning/mission/packages/lane_planner/include/**",
+                "/home/cnh/ZROS/src/computing/planning/motion/packages/lattice_planner/include/**",
+                "/home/cnh/ZROS/src/computing/perception/localization/packages/LeGO-LOAM/LeGO-LOAM/include/**",
+                "/home/cnh/ZROS/src/data/packages/map_file/include/**",
+                "/home/cnh/ZROS/src/computing/perception/localization/lib/fast_pcl/ndt_cpu/include/**",
+                "/home/cnh/ZROS/src/computing/perception/localization/lib/fast_pcl/ndt_gpu/include/**",
+                "/home/cnh/ZROS/src/sensing/filters/packages/points_downsampler/include/**",
+                "/home/cnh/ZROS/src/sensing/filters/packages/points_preprocessor/points_preprocessor/include/**",
+                "/home/cnh/ZROS/src/base_driver/ps2_joysticker/include/**",
+                "/home/cnh/ZROS/src/external_support/ptz_control/include/**",
+                "/home/cnh/ZROS/src/computing/perception/localization/lib/fast_pcl/registration/include/**",
+                "/home/cnh/ZROS/src/sensing/drivers/camera/packages/usb_cam/include/**",
+                "/home/cnh/ZROS/src/data/packages/vector_map/include/**",
+                "/home/cnh/ZROS/src/sensing/drivers/lidar/packages/velodyne/velodyne_driver/include/**",
+                "/home/cnh/ZROS/src/sensing/drivers/lidar/packages/velodyne/velodyne_pointcloud/include/**",
+                "/home/cnh/ZROS/src/computing/planning/motion/packages/waypoint_follower/include/**",
+                "/usr/include/**"
+            ],
+            "name": "ROS",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++14"
+        }
+    ],
+    "version": 4
+}

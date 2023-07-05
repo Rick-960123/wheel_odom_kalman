@@ -1,0 +1,8 @@
+<launch>
+	<node pkg="wheel_odom_kalman" type="wheel_odom_ekf" name="wheel_odom_ekf" output="screen">
+		<param name="file_path"
+			value="$(find wheel_odom_kalman)/config/encoder.yaml" />
+		<param name="imu_topic"
+			value="/imu_raw" />
+	</node>
+</launch>

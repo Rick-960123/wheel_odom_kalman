@@ -1,0 +1,12 @@
+<launch>
+    <node pkg="wheel_odom_kalman" type="wheel_odom_eskf" name="wheel_odom_eskf"
+        output="screen">
+        <param name="file_path"
+            value="$(find wheel_odom_kalman)/config/encoder.yaml" />
+        <rosparam command="load"
+            file="$(find imu_odom)/config/imu.yaml" />
+        <param name="slip_k" value="0.05" />
+        <param name="gravity" value="9.81" />
+        <param name="num_data" value="100" />
+    </node>
+</launch>

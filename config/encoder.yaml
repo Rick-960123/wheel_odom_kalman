@@ -1,0 +1,48 @@
+ZR1001:
+  wheel_radius: 0.1
+  encoder_ticks_per_rev: 1000
+  wheelbase: 0.5
+  wheelratio: 0.95
+  sigma_w: 0.01
+  sigma_v: 0.001
+  T_imu_enc:
+   [ 1.0,     0.0,      0.0,    -0.100215,
+     0.0,      1.0,      0.0,     -0.005633,
+     0.0,      0.0,      1.0,     -10.666,
+     0.0,      0.0,      0.0,     1.0 ]
+ZR1047:
+  wheel_radius: 0.1
+  encoder_ticks_per_rev: 1000
+  wheelbase: 0.5
+  wheelratio: 0.95
+  sigma_w: 0.01
+  sigma_v: 0.001
+  T_imu_enc:
+   [ 1.0,     0.0,      0.0,    -0.100215,
+     0.0,      1.0,      0.0,     -0.005633,
+     0.0,      0.0,      1.0,     -10.666,
+     0.0,      0.0,      0.0,     1.0 ]
+ZR1048:
+  wheel_radius: 0.1
+  encoder_ticks_per_rev: 1000
+  wheelbase: 0.5
+  wheelratio: 0.95
+  sigma_w: 0.01
+  sigma_v: 0.001
+  T_imu_enc:
+   [ 1.0,     0.0,      0.0,    -0.100215,
+     0.0,      1.0,      0.0,     -0.005633,
+     0.0,      0.0,      1.0,     -10.666,
+     0.0,      0.0,      0.0,     1.0 ]
+ZR1049:
+  wheel_radius: 0.1
+  encoder_ticks_per_rev: 1000
+  wheelbase: 0.5
+  wheelratio: 0.95
+  sigma_w: 0.01
+  sigma_v: 0.001
+  T_imu_enc:
+   [ 1.0,     0.0,      0.0,    -0.100215,
+     0.0,      1.0,      0.0,     -0.005633,
+     0.0,      0.0,      1.0,     -10.666,
+     0.0,      0.0,      0.0,     1.0 ]
