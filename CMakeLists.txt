@@ -271,7 +271,7 @@ install(TARGETS wheel_odom_ekf
 #               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
-install(PROGRAMS scripts/wheel_odom.py
+install(PROGRAMS scripts/wheel_odom_ekf.py
                   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 install(DIRECTORY scripts
