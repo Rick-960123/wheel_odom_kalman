@@ -289,7 +289,7 @@ void pub_odom()
   // 发布坐标变换 T_map_to_odom
   static tf::TransformBroadcaster broadcaster;
   geometry_msgs::TransformStamped odom_trans;
-  odom_trans.header.frame_id = "camera_init";
+  odom_trans.header.frame_id = "map";
   odom_trans.child_frame_id = "odom_base_link";
   odom_trans.header.stamp = last_imu_stamp;
   odom_trans.transform.translation.x = current_pose_x;
@@ -301,7 +301,7 @@ void pub_odom()
   // 发布里程计消息 T_map_to_odom
   nav_msgs::Odometry odom;
   odom.header.stamp = last_imu_stamp;
-  odom.header.frame_id = "camera_init";
+  odom.header.frame_id = "map";
   odom.child_frame_id = "odom_base_link";
   odom.pose.pose.position.x = current_pose_x;
   odom.pose.pose.position.y = current_pose_y;
