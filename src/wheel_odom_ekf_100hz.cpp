@@ -204,9 +204,6 @@ void init_state(double& x, double& y, double& z, double& roll, double& pitch, do
   current_pose_pitch = pitch;
   current_pose_yaw = yaw;
 
-  ROS_INFO("wheel_odom_ekf_node::init_state x = %f y = %f z = %f roll = %f pitch = %f yaw = %f", x, y, z, roll, pitch,
-           yaw);
-
   state[0] = x;
   state[1] = y;
   state[2] = v_x;
@@ -219,6 +216,9 @@ void init_state(double& x, double& y, double& z, double& roll, double& pitch, do
   first_imu_msg = true;
   first_imu_twist_msg = true;
   initialized_flag = true;
+
+  ROS_INFO("wheel_odom_ekf_node::init_state x = %f y = %f z = %f v_x = %f v_y = %f yaw = %f", state[0], state[1],
+           state[2], state[3], pitch, state[4]);
 }
 
 void use_wheel_odom_callback(const std_msgs::BoolConstPtr& msg)
@@ -282,12 +282,14 @@ void pub_odom()
 {
   current_pose_x = state[0];
   current_pose_y = state[1];
+  current_linear_x = state[2];
+  current_linear_y = state[3];
   current_pose_yaw = state[4];
 
   // 发布坐标变换 T_map_to_odom
   static tf::TransformBroadcaster broadcaster;
   geometry_msgs::TransformStamped odom_trans;
-  odom_trans.header.frame_id = "map";
+  odom_trans.header.frame_id = "camera_init";
   odom_trans.child_frame_id = "odom_base_link";
   odom_trans.header.stamp = last_imu_stamp;
   odom_trans.transform.translation.x = current_pose_x;
@@ -299,7 +301,7 @@ void pub_odom()
   // 发布里程计消息 T_map_to_odom
   nav_msgs::Odometry odom;
   odom.header.stamp = last_imu_stamp;
-  odom.header.frame_id = "map";
+  odom.header.frame_id = "camera_init";
   odom.child_frame_id = "odom_base_link";
   odom.pose.pose.position.x = current_pose_x;
   odom.pose.pose.position.y = current_pose_y;
@@ -398,7 +400,7 @@ void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstP
   }
   catch (tf::TransformException& ex)
   {
-  // ROS_ERROR("%s", ex.what());
+    // ROS_ERROR("%s", ex.what());
   }
 
   tf::Quaternion q(input->pose.pose.orientation.x, input->pose.pose.orientation.y, input->pose.pose.orientation.z,
@@ -485,6 +487,7 @@ void ekf_predict(const Eigen::Vector3d& a_body, const Eigen::Vector3d& w_body, c
   Eigen::Vector3d a_w = Eigen::Vector3d::Zero();
   a_w[0] = a_body[0] * cos(state[4] + delta_yaw);
   a_w[1] = a_body[0] * sin(state[4] + delta_yaw);
+
   Eigen::Vector3d mid_a = (a_w + last_a_w) / 2;
 
   F << 1.0, 0.0, dt, 0.0, -pow(dt, 2) * mid_a[1] / 2, 0.0, 1.0, 0.0, dt, pow(dt, 2) * mid_a[0] / 2, 0.0, 0.0, 1.0, 0.0,
@@ -529,6 +532,7 @@ void ekf_meaturement(const double& v, const double& w, const double& dt)
   Eigen::MatrixXd E = Eigen::Matrix<double, 5, 5>::Identity();
   P = (E - K * H.transpose()) * P;
 
+  current_angular_z = (state[4] - last_encoder_state[4])/dt;
   last_encoder_state = state;
   last_encoder_w = w;
 
@@ -537,7 +541,7 @@ void ekf_meaturement(const double& v, const double& w, const double& dt)
 
 void encoders_callback(const zr_msgs::motor_info::ConstPtr& msg)
 {
-  if (!initialized_flag)
+  if (!initialized_flag || first_imu_msg)
   {
     return;
   }
@@ -547,12 +551,13 @@ void encoders_callback(const zr_msgs::motor_info::ConstPtr& msg)
     velhicle_linear_x = (msg->left_vel + msg->right_vel) / 2.0;
     velhicle_angular_z = (msg->right_vel - msg->left_vel) / wheelbase * wheelratio;
 
-    if (first_enc_msg && first_imu_msg)
+    if (first_enc_msg)
     {
       last_motorinfo_stamp = cur;
       first_enc_msg = false;
       return;
     }
+
     double dt = (last_imu_stamp - last_motorinfo_stamp).toSec();
     last_motorinfo_stamp = cur;
 
@@ -711,6 +716,7 @@ int main(int argc, char** argv)
   ros::Subscriber use_wheel_odom_sub = nh.subscribe("/use_wheel_odom", 10, wheel_odom_ekf::use_wheel_odom_callback);
   ros::Subscriber imu_odom_sub = nh.subscribe("/imu_twist", 10, wheel_odom_ekf::imu_twist_callback);
 
+  wheel_odom_ekf::R_b_w = Eigen::Matrix<double, 3, 3>::Identity();
   Eigen::MatrixXd E = Eigen::Matrix<double, 5, 5>::Identity();
   wheel_odom_ekf::Q = E;
   wheel_odom_ekf::H = E;
