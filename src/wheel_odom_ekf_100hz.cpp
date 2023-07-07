@@ -522,8 +522,9 @@ void ekf_meaturement(const double& v, const double& w, const double& dt)
   Eigen::Matrix<double, 5, 1> z_m;
   z_m << p_x, p_y, v_x, v_y, delta_yaw + last_encoder_state[4];
 
-  Eigen::MatrixXd _R = R * abs(v);
-  R(4, 4) = R(4, 4) * abs(w);
+  Eigen::MatrixXd _R = R * abs(v) * 5;
+  R(4, 4) = R(4, 4) * abs(w) * 100;
+
   K = P * H * (H.transpose() * (P * H) + R).inverse();
 
   Eigen::MatrixXd dz = z_m - state;
