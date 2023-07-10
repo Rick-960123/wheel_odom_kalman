@@ -3,6 +3,8 @@
 		<param name="file_path"
 			value="$(find wheel_odom_kalman)/config/encoder.yaml" />
 		<param name="imu_topic"
-			value="/imu_raw" />
+			value="/imu_data" />
 	</node>
+	<node pkg="tf" type="static_transform_publisher" name="camera_init_to_map1" args="0 0 0 0 0 0  /camera_init /map 10" >
+    </node>
 </launch>

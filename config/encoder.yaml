@@ -2,7 +2,7 @@ ZR1001:
   wheel_radius: 0.1
   encoder_ticks_per_rev: 1000
   wheelbase: 0.5
-  wheelratio: 1.10
+  wheelratio: 0.93
   sigma_w: 0.01
   sigma_v: 0.001
   T_imu_enc:
