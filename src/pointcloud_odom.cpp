@@ -1,39 +1,3 @@
-/*
- *  Copyright (c) 2015, Nagoya University
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without
- *  modification, are permitted provided that the following conditions are met:
- *
- *  * Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- *  * Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- *  * Neither the name of Autoware nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
- *
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- *  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- *  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- *  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- *  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- *  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-/*
- Localization program using Normal Distributions Transform
-
- Yuki KITSUKAWA
- */
-
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -80,7 +44,7 @@
 #include <autoware_msgs/ConfigNdt.h>
 
 #include <autoware_msgs/ndt_stat.h>
-
+#include <sophus/se3.h>
 // Added for testing on cpu
 #include <fast_pcl/ndt_cpu/NormalDistributionsTransform.h>
 // End of adding
@@ -91,12 +55,12 @@
 #define Wa 0.4
 #define Wb 0.2
 #define Wc 0.2
-#define Wd 0.2 // note-justin    权重
+#define Wd 0.2  // note-justin    权重
 
 static double fitness_score_threshold = 0.0;
 
-#define fitness_score_threshold_indoor 0.3   // note-justin  户内设置参数较小 0.3
-#define fitness_score_threshold_outdoor 20.0 // note-justin  户外设置参数较大 5.0
+#define fitness_score_threshold_indoor 0.3    // note-justin  户内设置参数较小 0.3
+#define fitness_score_threshold_outdoor 20.0  // note-justin  户外设置参数较大 5.0
 
 struct pose
 {
@@ -110,17 +74,18 @@ struct pose
 
 static bool need_initial_ = false;
 
-static pose initial_pose, predict_pose, predict_pose_imu, predict_pose_odom, predict_pose_imu_odom, previous_pose, previous_odom_pose,
-    ndt_pose, current_pose, current_pose_imu, current_pose_odom, current_pose_imu_odom, localizer_pose,
-    previous_gnss_pose, current_gnss_pose;
+static pose initial_pose, predict_pose, predict_pose_imu, predict_pose_odom, predict_pose_imu_odom, previous_pose,
+    previous_odom_pose, ndt_pose, current_pose, current_pose_imu, current_pose_odom, current_pose_imu_odom,
+    localizer_pose, previous_gnss_pose, current_gnss_pose;
 
 static pose store_pose;
 static pose current_natural_pose, previous_natural_pose;
 
 static nav_msgs::Odometry current_odom_pose;
 
-static double offset_x, offset_y, offset_z, offset_yaw;                                                          // current_pos - previous_pose
-static double odom_offset_x, odom_offset_y, odom_offset_z, odom_offset_roll, odom_offset_pitch, odom_offset_yaw; // current_pos - previous_pose
+static double offset_x, offset_y, offset_z, offset_yaw;  // current_pos - previous_pose
+static double odom_offset_x, odom_offset_y, odom_offset_z, odom_offset_roll, odom_offset_pitch,
+    odom_offset_yaw;  // current_pos - previous_pose
 static double previous_pose_roll, previous_pose_pitch, previous_pose_yaw;
 
 static double offset_imu_x, offset_imu_y, offset_imu_z, offset_imu_roll, offset_imu_pitch, offset_imu_yaw;
@@ -128,8 +93,7 @@ static double offset_odom_x, offset_odom_y, offset_odom_z, offset_odom_roll, off
 static double offset_imu_odom_x, offset_imu_odom_y, offset_imu_odom_z, offset_imu_odom_roll, offset_imu_odom_pitch,
     offset_imu_odom_yaw;
 
-// Can't load if typed "pcl::PointCloud<pcl::PointXYZRGB> map, add;"
-static pcl::PointCloud<pcl::PointXYZ> map, add;
+static pcl::PointCloud<pcl::PointXYZ> global_map, sub_map;
 
 // If the map is loaded, map_loaded will be 1.
 static int map_loaded = 0;
@@ -142,7 +106,8 @@ static int init_ekf_general_cnt = 0;
 geometry_msgs::PoseWithCovarianceStamped desired_relocalization_pose_;
 
 #ifdef CUDA_FOUND
-static std::shared_ptr<gpu::GNormalDistributionsTransform> gpu_ndt_ptr = std::make_shared<gpu::GNormalDistributionsTransform>();
+static std::shared_ptr<gpu::GNormalDistributionsTransform> gpu_ndt_ptr =
+    std::make_shared<gpu::GNormalDistributionsTransform>();
 #endif
 
 static cpu::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> cpu_ndt;
@@ -150,10 +115,12 @@ static cpu::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> cpu_ndt;
 static pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
 
 // Default values
-static int max_iter = 30;       // Maximum iterations
-static float ndt_res = 1.0;     // Resolution
-static double step_size = 0.1;  // Step size
-static double trans_eps = 0.01; // Transformation epsilon
+static int max_iter = 30;        // Maximum iterations
+static float ndt_res = 1.0;      // Resolution
+static double step_size = 0.1;   // Step size
+static double trans_eps = 0.01;  // Transformation epsilon
+
+static ros::Publisher sub_map_pub;
 
 static ros::Publisher predict_pose_pub;
 static geometry_msgs::PoseStamped predict_pose_msg;
@@ -195,6 +162,11 @@ static ros::Time current_scan_time;
 static ros::Time previous_scan_time;
 static ros::Duration scan_duration;
 
+pcl::CropBox<pcl::PointXYZ> crop_filter;
+pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
+pcl::VoxelGrid<pcl::PointXYZ> vox_filter;
+
+
 static double exe_time = 0.0;
 static bool has_converged;
 
@@ -215,23 +187,10 @@ static bool use_wheel_odom_flag = false;
 static bool use_wheel_odom_lift_flag = false;
 static bool use_wheel_relocalization_flag = false;
 
-static double ndt_relibility_data_0 = 0.0;
-static double ndt_relibility_data_1 = 0.0;
-static double ndt_relibility_data_2 = 0.0;
-static double ndt_relibility_data_3 = 0.0;
-static double ndt_relibility_data_4 = 0.0;
-static double ndt_relibility_data_5 = 0.0;
-static double ndt_relibility_data_6 = 0.0;
-static double ndt_relibility_data_7 = 0.0;
-static double ndt_relibility_data_8 = 0.0;
-static double ndt_relibility_data_9 = 0.0;
-static double ndt_relibility_data_10 = 0.0;
-static double ndt_reliability_data_mean = 0.0;
-
 static double diff = 0.0;
 static double diff_x = 0.0, diff_y = 0.0, diff_z = 0.0, diff_yaw;
 
-static double current_velocity = 0.0, previous_velocity = 0.0, previous_previous_velocity = 0.0; //[m/s]
+static double current_velocity = 0.0, previous_velocity = 0.0, previous_previous_velocity = 0.0;  //[m/s]
 static double current_velocity_x = 0.0, previous_velocity_x = 0.0;
 static double current_velocity_y = 0.0, previous_velocity_y = 0.0;
 static double current_velocity_z = 0.0, previous_velocity_z = 0.0;
@@ -242,7 +201,7 @@ static double current_velocity_imu_x = 0.0;
 static double current_velocity_imu_y = 0.0;
 static double current_velocity_imu_z = 0.0;
 
-static double current_accel = 0.0, previous_accel = 0.0; //[m/s^2]
+static double current_accel = 0.0, previous_accel = 0.0;  //[m/s^2]
 static double current_accel_x = 0.0;
 static double current_accel_y = 0.0;
 static double current_accel_z = 0.0;
@@ -273,7 +232,7 @@ static double _tf_x, _tf_y, _tf_z, _tf_roll, _tf_pitch, _tf_yaw;
 static Eigen::Matrix4f tf_btol;
 
 static std::string _localizer = "rslidar";
-static std::string _offset = "linear"; // linear, zero, quadratic
+static std::string _offset = "linear";  // linear, zero, quadratic
 
 static ros::Publisher ndt_reliability_pub;
 static std_msgs::Float32 ndt_reliability;
@@ -345,7 +304,7 @@ static double diff_z_new = 0.0;
 bool inital_pose_flag = true;
 static int ndt_normal_cnt = 0;
 static int ndt_normal_cnt_divide = 0;
-static int odom_pose_used_cnt = 0; // note-justin    持续使用odom的计数
+static int odom_pose_used_cnt = 0;  // note-justin    持续使用odom的计数
 
 static int encoder_position_cnt = 0;
 static int save_point_cnt = 0;
@@ -359,24 +318,16 @@ static bool indoor_;
 
 static int waypoint_change_flag;
 
-static int global_closest_waypoint;
 static int manually_into_environment;
 
-static double err_of_imu;
-
-static int lost_path_point_flag = -1;
-
-// 定义移动平均滤波器的窗口大小
 const int fitness_window_size = 5;
 std::vector<double> fitness_filter_buf;
 
 pthread_mutex_t mutex;
 
-/**************new_add 此处为新的回调函数，用于获取来自里程计的位置信息**************/
-static void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
+static void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
 {
   odom = *msg;
-  odom_calc(msg->header.stamp);
 
   current_odom_pose.pose.pose.position.x = msg->pose.pose.position.x;
   current_odom_pose.pose.pose.position.y = msg->pose.pose.position.y;
@@ -412,67 +363,23 @@ static void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
   previous_odom_pose.yaw = current_odom_pose_yaw;
 }
 
-/**************new_add 此处为新的回调函数，用于获取来自里程计的位置信息**************/
-static void fitness_score_mean_callback(const std_msgs::Float32ConstPtr &msg)
-{
-  fitness_score_mean = msg->data;
-  // std::cout << "fitness_score = " << fitness_score << std::endl;
-}
-
-/**************new_add 此处为新的回调函数，用于获取来自里程计的位置信息**************/
-static void fitness_score_median_callback(const std_msgs::Float32ConstPtr &msg)
-{
-  fitness_score_median = msg->data;
-  ////ROS_ERROR("ndt_matching.cpp:: fitness_score_median_callback fitness_score_median = %f", fitness_score_median);
-  //  std::cout << "fitness_score = " << fitness_score << std::endl;
-}
-
-static void use_wheel_odom_callback(const std_msgs::BoolConstPtr &msg)
+static void use_wheel_odom_callback(const std_msgs::BoolConstPtr& msg)
 {
   use_wheel_odom_lift_flag = msg->data;
-
-  ROS_INFO("ndt_matching.cpp:: use_wheel_odom_callback  use_wheel_odom_lift_flag = %d ", use_wheel_odom_lift_flag);
 }
 
-void waypointchangeflagCallback(const std_msgs::Int32::ConstPtr &msg)
+void waypointchangeflagCallback(const std_msgs::Int32::ConstPtr& msg)
 {
-  if (use_wheel_odom_flag == false)
-  {
-    waypoint_change_flag = msg->data;
-  }
-  else
-  {
-    waypoint_change_flag = 5; // note-justin
-    // ROS_INFO("ndt_matching.cpp:: waypointchangeflagCallback waypoint_change_flag = 5 ");
-  }
-
-  if (waypoint_change_flag == 5)
-  {
-    use_wheel_odom_flag = true;
-  }
-  else
-  {
-    use_wheel_odom_flag = false;
-  }
+  waypoint_change_flag = msg->data;
+  use_wheel_odom_flag = waypoint_change_flag == 5 ? true : false;
 }
 
-void globalclosestFlagCallback(const std_msgs::Int32 &msg)
+void manuallyEnvironCallback(const std_msgs::Int32& msg)
 {
-
-  global_closest_waypoint = msg.data;
-
-  // ROS_INFO("lattice_velocity_set.cpp:: global_closest_waypoint = %d", global_closest_waypoint);
-}
-
-void manuallyEnvironCallback(const std_msgs::Int32 &msg)
-{
-
   manually_into_environment = msg.data;
-
-  // ROS_INFO("lattice_velocity_set.cpp:: global_closest_waypoint = %d", global_closest_waypoint);
 }
 
-void lostPathPointCallback(const std_msgs::Int32::ConstPtr &msg)
+void lostPathPointCallback(const std_msgs::Int32::ConstPtr& msg)
 {
   if (msg->data == 0)
   {
@@ -483,7 +390,7 @@ void lostPathPointCallback(const std_msgs::Int32::ConstPtr &msg)
 
 /**************************************************************************/
 
-static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr &input)
+static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr& input)
 {
   if (_use_gnss != input->init_pos_gnss)
   {
@@ -662,7 +569,10 @@ static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr &input)
     current_velocity_imu_z = current_velocity_z;
     init_pos_set = 1;
 
-    ROS_INFO("ndt_matching.cpp:: param_callback subscribe config/ndt  initial_pose.x = %f initial_pose.y = %f initial_pose.z = %f initial_pose.roll = %f initial_pose.pitch = %f initial_pose.yaw = %f", initial_pose.x, initial_pose.y, initial_pose.z, initial_pose.roll, initial_pose.pitch, initial_pose.yaw);
+    ROS_INFO(
+        "ndt_matching.cpp:: param_callback subscribe config/ndt  initial_pose.x = %f initial_pose.y = %f "
+        "initial_pose.z = %f initial_pose.roll = %f initial_pose.pitch = %f initial_pose.yaw = %f",
+        initial_pose.x, initial_pose.y, initial_pose.z, initial_pose.roll, initial_pose.pitch, initial_pose.yaw);
 
     pre_ndt_pose_msg.header.frame_id = "map";
     pre_ndt_pose_msg.header.stamp = current_scan_time;
@@ -673,36 +583,21 @@ static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr &input)
   }
 }
 
-static void map_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
+static void map_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
   if (input->width > 0)
   {
-    pcl::fromROSMsg(*input, map);
-
-    if (_use_local_transform == true)
-    {
-      tf::TransformListener local_transform_listener;
-      try
-      {
-        ros::Time now = ros::Time(0);
-        local_transform_listener.waitForTransform("map", "world", now, ros::Duration(50.0));
-        local_transform_listener.lookupTransform("map", "world", now, local_transform);
-      }
-      catch (tf::TransformException &ex)
-      {
-      }
-      pcl_ros::transformPointCloud(map, map, local_transform.inverse());
-    }
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr(new pcl::PointCloud<pcl::PointXYZ>(map));
+    pcl::fromROSMsg(*input, global_map);
+    crop_filter.setInputCloud(global_map);
     map_loaded = 1;
-
-  }else{
+  }
+  else
+  {
     ROS_ERROR("无效的地图!")
   }
 }
 
-static void gnss_callback(const geometry_msgs::PoseStamped::ConstPtr &input)
+static void gnss_callback(const geometry_msgs::PoseStamped::ConstPtr& input)
 {
   tf::Quaternion gnss_q(input->pose.orientation.x, input->pose.orientation.y, input->pose.orientation.z,
                         input->pose.orientation.w);
@@ -748,9 +643,8 @@ static void gnss_callback(const geometry_msgs::PoseStamped::ConstPtr &input)
   previous_gnss_pose.yaw = current_gnss_pose.yaw;
 }
 
-static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &input)
+static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr& input)
 {
-
   need_initial_ = false;
 
   tf::Quaternion gnss_q(input->pose.orientation.x, input->pose.orientation.y, input->pose.orientation.z,
@@ -768,9 +662,9 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
 
   float reposition_threshold_data = 0.0;
 
-  if (waypoint_change_flag == 4) // note-justin 室内模式
+  if (waypoint_change_flag == 4)
   {
-    reposition_threshold_data = 500000.0; // note-justin  IMU数据不准的时候，不宜轻易触发重定位
+    reposition_threshold_data = 500000.0;
   }
   else
   {
@@ -782,27 +676,25 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
   if (ndt_reliability_data_mean >= reposition_threshold_data)
   {
     init_ekf_relocalization_cnt++;
-    // ROS_INFO("-------------------------------------------------------------------------");
-    // ROS_INFO("ndt_matching.cpp:: wheel_odom_callback ========init_ekf_relocalization_cnt = %d =======ndt_reliability_data_mean = %f====================", init_ekf_relocalization_cnt, ndt_reliability_data_mean);
-    // ROS_INFO("ndt_matching.cpp:: wheel_odom_callback input->pose.position.x = %f input->pose.position.y = %f input->pose.position.z = %f current_pose.roll = %f current_pose.pitch = %f current_pose.yaw = %f ekf_pose_cnt = %d distance = %f", input->pose.position.x, input->pose.position.y, input->pose.position.z, current_pose.roll, current_pose.pitch, current_pose.yaw, ekf_pose_cnt, distance);
-    // ROS_INFO("ndt_matching.cpp:: wheel_odom_callback ============init_ekf_relocalization_cnt = %d ===========================", init_ekf_relocalization_cnt);
   }
   else
   {
-    // ROS_INFO("ndt_matching.cpp:: wheel_odom_callback ========init_ekf_general_cnt = %d =======ndt_reliability_data_mean = %f====================",init_ekf_general_cnt,ndt_reliability_data_mean);
   }
 
   if (init_ekf_relocalization_cnt >= 10 || lost_path_point_flag == 0)
   {
     use_wheel_relocalization_flag = true;
     lost_path_point_flag = 1;
-    ROS_INFO("ndt_matching.cpp:: wheel_odom_callback ========init_ekf_relocalization_cnt = %d =======ndt_reliability_data_mean = %f====================lost_path_point_flag = %d ", init_ekf_relocalization_cnt, ndt_reliability_data_mean, lost_path_point_flag);
+    ROS_INFO(
+        "ndt_matching.cpp:: wheel_odom_callback ========init_ekf_relocalization_cnt = %d "
+        "=======ndt_reliability_data_mean = %f====================lost_path_point_flag = %d ",
+        init_ekf_relocalization_cnt, ndt_reliability_data_mean, lost_path_point_flag);
   }
 
   // Justin 当pose突然丢掉时候，可以用gnss来进行纠正，作为全局定位的依据，后续可以和VSLAM结合
-  if ((init_ekf_set == 0) && (use_wheel_relocalization_flag == true) && (waypoint_change_flag != 5)) // note-justin indoor 50 outdoor 80
+  if ((init_ekf_set == 0) && (use_wheel_relocalization_flag == true) &&
+      (waypoint_change_flag != 5))  // note-justin indoor 50 outdoor 80
   {
-
     tf::TransformListener listener;
     tf::StampedTransform transform;
     try
@@ -811,7 +703,7 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
       listener.waitForTransform("map", input->header.frame_id, now, ros::Duration(50.0));
       listener.lookupTransform("map", input->header.frame_id, now, transform);
     }
-    catch (tf::TransformException &ex)
+    catch (tf::TransformException& ex)
     {
       // ROS_ERROR("%s", ex.what());
     }
@@ -821,7 +713,10 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
       current_pose.x = current_gnss_pose.x;
       current_pose.y = current_gnss_pose.y;
       current_pose.z = current_gnss_pose.z;
-      ROS_INFO("ndt_matching.cpp:: wheel_odom_callback current_pose_x = %f current_pose_y = %f current_pose_z = %f _use_local_transform = %d", current_pose.x, current_pose.y, current_pose.z, _use_local_transform);
+      ROS_INFO(
+          "ndt_matching.cpp:: wheel_odom_callback current_pose_x = %f current_pose_y = %f current_pose_z = %f "
+          "_use_local_transform = %d",
+          current_pose.x, current_pose.y, current_pose.z, _use_local_transform);
     }
     else
     {
@@ -830,7 +725,10 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
       current_pose.x = current_gnss_pose.x + transform.getOrigin().x();
       current_pose.y = current_gnss_pose.y + transform.getOrigin().y();
       current_pose.z = current_gnss_pose.z + transform.getOrigin().z();
-      ROS_INFO("ndt_matching.cpp:: wheel_odom_callback current_pose_x = %f current_pose_y = %f current_pose_z = %f _use_local_transform = %d", current_pose.x, current_pose.y, current_pose.z, _use_local_transform);
+      ROS_INFO(
+          "ndt_matching.cpp:: wheel_odom_callback current_pose_x = %f current_pose_y = %f current_pose_z = %f "
+          "_use_local_transform = %d",
+          current_pose.x, current_pose.y, current_pose.z, _use_local_transform);
     }
 
     init_ekf_general_cnt = 0;
@@ -839,7 +737,7 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
 
     current_pose.roll = current_gnss_pose.roll;
     current_pose.pitch = current_gnss_pose.pitch;
-    current_pose.yaw = current_gnss_pose.yaw; // note-justin  使用IMU的YAW
+    current_pose.yaw = current_gnss_pose.yaw;  // note-justin  使用IMU的YAW
 
     current_pose_imu = current_pose_odom = current_pose_imu_odom = current_pose;
 
@@ -876,9 +774,19 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
     offset_imu_odom_pitch = 0.0;
     offset_imu_odom_yaw = 0.0;
 
-    ROS_INFO("\n\nndt_matching.cpp:: wheel_odom_callback ===============================RESET NDT POSE==================%f=============================================================", ndt_reliability_data_mean);
-    ROS_ERROR("ndt_matching.cpp:: wheel_odom_callback input->pose.position.x = %f input->pose.position.y = %f input->pose.position.z = %f current_pose.roll = %f current_pose.pitch = %f current_pose.yaw = %f ekf_pose_cnt = %d distance = %f", input->pose.position.x, input->pose.position.y, input->pose.position.z, current_gnss_pose.roll, current_gnss_pose.pitch, current_gnss_pose.yaw, ekf_pose_cnt, distance);
-    ROS_INFO("ndt_matching.cpp:: wheel_odom_callback ========================================================================================================\n\n");
+    ROS_INFO(
+        "\n\nndt_matching.cpp:: wheel_odom_callback ===============================RESET NDT "
+        "POSE==================%f=============================================================",
+        ndt_reliability_data_mean);
+    ROS_ERROR(
+        "ndt_matching.cpp:: wheel_odom_callback input->pose.position.x = %f input->pose.position.y = %f "
+        "input->pose.position.z = %f current_pose.roll = %f current_pose.pitch = %f current_pose.yaw = %f ekf_pose_cnt "
+        "= %d distance = %f",
+        input->pose.position.x, input->pose.position.y, input->pose.position.z, current_gnss_pose.roll,
+        current_gnss_pose.pitch, current_gnss_pose.yaw, ekf_pose_cnt, distance);
+    ROS_INFO(
+        "ndt_matching.cpp:: wheel_odom_callback "
+        "========================================================================================================\n\n");
 
     init_ekf_set = 1;
   }
@@ -891,7 +799,8 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
     init_ekf_general_cnt = 0;
     init_ekf_relocalization_cnt = 0;
     use_wheel_relocalization_flag = false;
-    // ROS_INFO("ndt_matching.cpp:: wheel_odom_callback init_ekf_set = %d ekf_pose_cnt = %d", init_ekf_set, ekf_pose_cnt);
+    // ROS_INFO("ndt_matching.cpp:: wheel_odom_callback init_ekf_set = %d ekf_pose_cnt = %d", init_ekf_set,
+    // ekf_pose_cnt);
   }
 
   if (ekf_pose_cnt >= 100000000)
@@ -905,7 +814,7 @@ static void wheel_odom_callback(const geometry_msgs::PoseStamped::ConstPtr &inpu
   }
 }
 
-static void stay_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr &msg)
+static void stay_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr& msg)
 {
   waypoint_change_flag = msg->data;
 
@@ -916,7 +825,8 @@ static void stay_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr 
     in_lift_localization_flag = true;
     ndt_to_odom_pulse_flag == true;
   }
-  else if (waypoint_change_flag != 5 && in_lift_localization_flag == true && use_wheel_odom_lift_flag == false) // note-justin 5-> 4
+  else if (waypoint_change_flag != 5 && in_lift_localization_flag == true &&
+           use_wheel_odom_lift_flag == false)  // note-justin 5-> 4
   {
     out_lift_localization_flag = true;
     jump_lift_localization_flag = true;
@@ -924,11 +834,16 @@ static void stay_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr 
     ndt_to_odom_pulse_flag = false;
   }
 
-  if (((waypoint_change_flag == 5 && ndt_to_odom_pulse_flag == true)) || use_wheel_odom_lift_flag == true) // note-justin 4->5 同时考虑use_wheel_odom 和路径模式
-  // if ((waypoint_change_flag == 5 && ndt_to_odom_pulse_flag == true)) // note-justin 4->5 不考虑use_wheel_odom 和只考虑路径模式5
+  if (((waypoint_change_flag == 5 && ndt_to_odom_pulse_flag == true)) ||
+      use_wheel_odom_lift_flag == true)  // note-justin 4->5 同时考虑use_wheel_odom 和路径模式
+  // if ((waypoint_change_flag == 5 && ndt_to_odom_pulse_flag == true)) // note-justin 4->5 不考虑use_wheel_odom
+  // 和只考虑路径模式5
   {
     stay_lift_localization_flag = true;
-    ROS_INFO("ndt_matching.cpp::stay_lift_localization_flag:: waypoint_chang_flag = %d stay_lift_localization_flag = %d use_wheel_odom_lift_flag = %d", waypoint_change_flag, stay_lift_localization_flag, use_wheel_odom_lift_flag);
+    ROS_INFO(
+        "ndt_matching.cpp::stay_lift_localization_flag:: waypoint_chang_flag = %d stay_lift_localization_flag = %d "
+        "use_wheel_odom_lift_flag = %d",
+        waypoint_change_flag, stay_lift_localization_flag, use_wheel_odom_lift_flag);
 
     ndt_stat_msg.header.stamp = current_scan_time;
     ndt_stat_msg.exe_time = time_ndt_matching.data;
@@ -943,14 +858,14 @@ static void stay_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr 
   else
   {
     stay_lift_localization_flag = false;
-    // ROS_INFO("ndt_matching.cpp::stay_lift_localization_flag:: waypoint_chang_flag = %d stay_lift_localization_flag = %d",waypoint_change_flag, stay_lift_localization_flag);
+    // ROS_INFO("ndt_matching.cpp::stay_lift_localization_flag:: waypoint_chang_flag = %d stay_lift_localization_flag =
+    // %d",waypoint_change_flag, stay_lift_localization_flag);
   }
 }
 
-static void go_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr &msg)
+static void go_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr& msg)
 {
-
-  if (msg->data == 1) // 4->5
+  if (msg->data == 1)  // 4->5
   {
     ndt_to_odom_pulse_flag = true;
     std::cout << "ndt_matching.cpp::ndt_to_odom_pulse_flag::" << ndt_to_odom_pulse_flag << std::endl;
@@ -965,55 +880,68 @@ static void go_lift_localization_flagCallback(const std_msgs::Int32::ConstPtr &m
 }
 
 // start_flag callback Functions
-static void StartFlagCallback(const std_msgs::Int32 &msg)
+static void StartFlagCallback(const std_msgs::Int32& msg)
 {
   start_flag = msg;
 }
-
-static void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &input)
+void inverse_se3(Eigen::MatrixXd& T)
 {
+  Sophus::SE3 T_tmp(T);
+  return T_tmp.inverse();
+}
 
-  need_initial_ = false;
+void registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_scan, pcl::PointCloud<pcl::PointXYZ>::Ptr pc_map,
+                           Eigen::MatrixXd& initial, double scale)
+{
+  icp.setInputSource(pc_scan);
+  icp.setInputTarget(pc_map);     // 设置配准参数
+  icp.setMaximumIterations(100);       // 设置最大迭代次数
+  icp.setTransformationEpsilon(1e-8);     // 设置收敛条件
+  icp.setEuclideanFitnessEpsilon(0.001);  // 设置配准误差
+  pcl::PointCloud<pcl::PointXYZ> aligned_cloud;
+  icp.align(aligned_cloud, initial_guess);
 
-  inital_pose_flag = true;
-  tf::TransformListener listener;
-  tf::StampedTransform transform;
-  try
-  {
-    ros::Time now = ros::Time(0);
-    listener.waitForTransform("map", input->header.frame_id, now, ros::Duration(50.0));
-    listener.lookupTransform("map", input->header.frame_id, now, transform);
-  }
-  catch (tf::TransformException &ex)
-  {
-    ROS_ERROR("%s", ex.what());
-  }
+  return icp.getFinalTransformation(), icp.getFitnessScore()
+}
 
+void crop_global_map_in_FOV(Eigen::MatrixXd& pose_estimation, Eigen::MatrixXd& cur_odom)
+{
+  Eigen::MatrixXd T_map_to_base_link = pose_estimation * cur_odom;
+
+  Eigen::Vector4d start, end;
+  start = T_map_to_base_link.transpose().block<4, 1>(0, 3) - Eigen::Vector4f(100, 100, 100, 0.0);
+  end = T_map_to_base_link.transpose().block<4, 1>(0, 3) + Eigen::Vector4f(100, 100, 100, 0.0);
+
+  crop_filter.setMin(start);
+  crop_filter.setMax(end);
+  crop_filter.filter(*sub_map);
+
+  sensor_msgs::PointCloud2 sub_map_msg;
+  pcl::toROSMsg(*sub_map, sub_map_msg);
+  sub_map_msg.header.stamp = point_odom.stamp;
+  sub_map_msg.header.frame_id = "map";
+  sub_map_pub.publish(sub_map_msg);
+}
+
+void global_localization(Eigen::MatrixXd& pose_estimation)
+{
+  crop_global_map_in_FOV(pose_estimation, cur_odom);
+
+}
+
+static void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& input)
+{
   tf::Quaternion q(input->pose.pose.orientation.x, input->pose.pose.orientation.y, input->pose.pose.orientation.z,
                    input->pose.pose.orientation.w);
   tf::Matrix3x3 m(q);
 
-  if (_use_local_transform == true)
-  {
-    current_pose.x = input->pose.pose.position.x;
-    current_pose.y = input->pose.pose.position.y;
-    current_pose.z = input->pose.pose.position.z;
-  }
-  else
-  {
-    // Justin 从rviz手动给出的pose是基于world坐标系的，所以需要将其转换到map坐标系
-    current_pose.x = input->pose.pose.position.x + transform.getOrigin().x();
-    current_pose.y = input->pose.pose.position.y + transform.getOrigin().y();
-    current_pose.z = input->pose.pose.position.z + transform.getOrigin().z();
-  }
   m.getRPY(current_pose.roll, current_pose.pitch, current_pose.yaw);
 
-  // Justin 这里主要是为了确认一个z值
   if (_get_height == true && map_loaded == 1)
   {
     double min_distance = DBL_MAX;
     double nearest_z = current_pose.z;
-    for (const auto &p : map)
+    for (const auto& p : map)
     {
       double distance = hypot(current_pose.x - p.x, current_pose.y - p.y);
       if (distance < min_distance)
@@ -1032,173 +960,6 @@ static void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped:
   previous_pose.roll = current_pose.roll;
   previous_pose.pitch = current_pose.pitch;
   previous_pose.yaw = current_pose.yaw;
-
-  offset_x = 0.0;
-  offset_y = 0.0;
-  offset_z = 0.0;
-  offset_yaw = 0.0;
-
-  offset_imu_x = 0.0;
-  offset_imu_y = 0.0;
-  offset_imu_z = 0.0;
-  offset_imu_roll = 0.0;
-  offset_imu_pitch = 0.0;
-  offset_imu_yaw = 0.0;
-
-  offset_odom_x = 0.0;
-  offset_odom_y = 0.0;
-  offset_odom_z = 0.0;
-  offset_odom_roll = 0.0;
-  offset_odom_pitch = 0.0;
-  offset_odom_yaw = 0.0;
-
-  offset_imu_odom_x = 0.0;
-  offset_imu_odom_y = 0.0;
-  offset_imu_odom_z = 0.0;
-  offset_imu_odom_roll = 0.0;
-  offset_imu_odom_pitch = 0.0;
-  offset_imu_odom_yaw = 0.0;
-}
-
-static void imu_odom_calc(ros::Time current_time)
-{
-  static ros::Time previous_time = current_time;
-  double diff_time = (current_time - previous_time).toSec();
-
-  double diff_imu_roll = imu.angular_velocity.x * diff_time;
-  double diff_imu_pitch = imu.angular_velocity.y * diff_time;
-  double diff_imu_yaw = imu.angular_velocity.z * diff_time;
-
-  current_pose_imu_odom.roll += diff_imu_roll;
-  current_pose_imu_odom.pitch += diff_imu_pitch;
-  current_pose_imu_odom.yaw += diff_imu_yaw;
-
-  double diff_distance = odom.twist.twist.linear.x * diff_time;
-  offset_imu_odom_x += diff_distance * cos(-current_pose_imu_odom.pitch) * cos(current_pose_imu_odom.yaw);
-  offset_imu_odom_y += diff_distance * cos(-current_pose_imu_odom.pitch) * sin(current_pose_imu_odom.yaw);
-  offset_imu_odom_z += diff_distance * sin(-current_pose_imu_odom.pitch);
-
-  offset_imu_odom_roll += diff_imu_roll;
-  offset_imu_odom_pitch += diff_imu_pitch;
-  offset_imu_odom_yaw += diff_imu_yaw;
-
-  predict_pose_imu_odom.x = previous_pose.x + offset_imu_odom_x;
-  predict_pose_imu_odom.y = previous_pose.y + offset_imu_odom_y;
-  predict_pose_imu_odom.z = previous_pose.z + offset_imu_odom_z;
-  predict_pose_imu_odom.roll = previous_pose.roll + offset_imu_odom_roll;
-  predict_pose_imu_odom.pitch = previous_pose.pitch + offset_imu_odom_pitch;
-  predict_pose_imu_odom.yaw = previous_pose.yaw + offset_imu_odom_yaw;
-
-  previous_time = current_time;
-
-  // ROS_INFO("ndt_matching.cpp:: diff_distance = %f offset_imu_odom_x = %f offset_imu_odom_y = %f offset_imu_odom_z = %f", diff_distance, offset_imu_odom_x, offset_imu_odom_y, offset_imu_odom_z);
-}
-
-static void odom_calc(ros::Time current_time)
-{
-  static ros::Time previous_time = current_time;
-  double diff_time = (current_time - previous_time).toSec();
-
-  double diff_odom_roll = odom.twist.twist.angular.x * diff_time;
-  double diff_odom_pitch = odom.twist.twist.angular.y * diff_time;
-  double diff_odom_yaw = odom.twist.twist.angular.z * diff_time;
-
-  current_pose_odom.roll += diff_odom_roll;
-  current_pose_odom.pitch += diff_odom_pitch;
-  current_pose_odom.yaw += diff_odom_yaw;
-
-  double diff_distance = odom.twist.twist.linear.x * diff_time;
-  offset_odom_x += diff_distance * cos(-current_pose_odom.pitch) * cos(current_pose_odom.yaw);
-  offset_odom_y += diff_distance * cos(-current_pose_odom.pitch) * sin(current_pose_odom.yaw);
-  offset_odom_z += diff_distance * sin(-current_pose_odom.pitch);
-
-  offset_odom_roll += diff_odom_roll;
-  offset_odom_pitch += diff_odom_pitch;
-  offset_odom_yaw += diff_odom_yaw;
-
-  predict_pose_odom.x = previous_pose.x + offset_odom_x;
-  predict_pose_odom.y = previous_pose.y + offset_odom_y;
-  predict_pose_odom.z = previous_pose.z + offset_odom_z;
-  predict_pose_odom.roll = previous_pose.roll + offset_odom_roll;
-  predict_pose_odom.pitch = previous_pose.pitch + offset_odom_pitch;
-  predict_pose_odom.yaw = previous_pose.yaw + offset_odom_yaw;
-
-  previous_time = current_time;
-}
-
-// note-justin 这段函数用于计算IMU的姿态和位移
-static void imu_calc(ros::Time current_time)
-{
-  static ros::Time previous_time = current_time;
-  // note-justin 首先计算当前时刻和上一时刻之间的时间差
-  double diff_time = (current_time - previous_time).toSec();
-  // note-justin 根据IMU的角速度计算当前时刻和上一时刻之间的姿态变化
-  double diff_imu_roll = imu.angular_velocity.x * diff_time;
-  double diff_imu_pitch = imu.angular_velocity.y * diff_time;
-  double diff_imu_yaw = imu.angular_velocity.z * diff_time;
-
-  current_pose_imu.roll += diff_imu_roll;
-  current_pose_imu.pitch += diff_imu_pitch;
-  current_pose_imu.yaw += diff_imu_yaw;
-  // note-justin 将IMU的加速度值转换到世界坐标系下
-  double accX1 = imu.linear_acceleration.x;
-  double accY1 = std::cos(current_pose_imu.roll) * imu.linear_acceleration.y -
-                 std::sin(current_pose_imu.roll) * imu.linear_acceleration.z;
-  double accZ1 = std::sin(current_pose_imu.roll) * imu.linear_acceleration.y +
-                 std::cos(current_pose_imu.roll) * imu.linear_acceleration.z;
-
-  double accX2 = std::sin(current_pose_imu.pitch) * accZ1 + std::cos(current_pose_imu.pitch) * accX1;
-  double accY2 = accY1;
-  double accZ2 = std::cos(current_pose_imu.pitch) * accZ1 - std::sin(current_pose_imu.pitch) * accX1;
-
-  double accX3 = std::cos(current_pose_imu.yaw) * accX2 - std::sin(current_pose_imu.yaw) * accY2;
-  double accY3 = std::sin(current_pose_imu.yaw) * accX2 + std::cos(current_pose_imu.yaw) * accY2;
-  double accZ3 = accZ2;
-
-  double accX = accX3 / 1000;
-  double accY = accY3 / 1000;
-  double accZ = accZ3 / 1000 - 1;
-
-  // 低通滤波
-  double alpha = 0.1; // note-justin 滤波系数 滤波系数越大，滤波器对信号的响应速度就越慢，滤波效果就越好
-  static double last_accX = 0.0;
-  static double last_accY = 0.0;
-  static double last_accZ = 0.0;
-  accX = alpha * accX + (1 - alpha) * last_accX;
-  accY = alpha * accY + (1 - alpha) * last_accY;
-  accZ = alpha * accZ + (1 - alpha) * last_accZ;
-  last_accX = accX;
-  last_accY = accY;
-  last_accZ = accZ;
-
-  offset_imu_x += current_velocity_imu_x * diff_time + accX * diff_time * diff_time / 2.0;
-  offset_imu_y += current_velocity_imu_y * diff_time + accY * diff_time * diff_time / 2.0;
-  offset_imu_z += current_velocity_imu_z * diff_time + accZ * diff_time * diff_time / 2.0;
-
-  current_velocity_imu_x += accX * diff_time;
-  current_velocity_imu_y += accY * diff_time;
-  current_velocity_imu_z += accZ * diff_time;
-
-  offset_imu_roll += diff_imu_roll;
-  offset_imu_pitch += diff_imu_pitch;
-  offset_imu_yaw += diff_imu_yaw;
-
-  predict_pose_imu.x = previous_pose.x + offset_imu_x;
-  predict_pose_imu.y = previous_pose.y + offset_imu_y;
-  predict_pose_imu.z = previous_pose.z + offset_imu_z;
-  predict_pose_imu.roll = previous_pose.roll + offset_imu_roll;
-  predict_pose_imu.pitch = previous_pose.pitch + offset_imu_pitch;
-  predict_pose_imu.yaw = previous_pose.yaw + offset_imu_yaw;
-
-  double offset_imu_theta = atan2(current_velocity_imu_y, current_velocity_imu_x);
-
-  double offset_imu_sign = (offset_imu_theta < 0) ? -1.0 : 1.0;
-
-  offset_imu_y_data.data = current_velocity_imu_x; 
-  
-  estimated_offset_imu_y_pub.publish(offset_imu_y_data);
-
-  previous_time = current_time;
 }
 
 static const double wrapToPm(double a_num, const double a_max)
@@ -1214,7 +975,6 @@ static const double wrapToPmPi(double a_angle_rad)
 {
   return wrapToPm(a_angle_rad, M_PI);
 }
-
 
 static void imuUpsideDown(const sensor_msgs::Imu::Ptr input)
 {
@@ -1239,69 +999,6 @@ static void imuUpsideDown(const sensor_msgs::Imu::Ptr input)
   input->orientation = tf::createQuaternionMsgFromRollPitchYaw(input_roll, input_pitch, input_yaw);
 }
 
-static void imu_callback(const sensor_msgs::Imu::Ptr &input)
-{
-
-  if (_imu_upside_down)
-    imuUpsideDown(input);
-
-  const ros::Time current_time = input->header.stamp;
-  static ros::Time previous_time = current_time;
-  const double diff_time = (current_time - previous_time).toSec();
-
-  double imu_roll, imu_pitch, imu_yaw;
-  tf::Quaternion imu_orientation;
-  tf::quaternionMsgToTF(input->orientation, imu_orientation);
-  tf::quaternionMsgToTF(input->orientation, imu_q);
-  tf::Matrix3x3(imu_orientation).getRPY(imu_roll, imu_pitch, imu_yaw);
-
-  imu_roll = wrapToPmPi(imu_roll);
-  imu_pitch = wrapToPmPi(imu_pitch);
-  imu_yaw = wrapToPmPi(imu_yaw);
-
-  static double previous_imu_roll = imu_roll, previous_imu_pitch = imu_pitch, previous_imu_yaw = imu_yaw;
-  const double diff_imu_roll = imu_roll - previous_imu_roll;
-
-  const double diff_imu_pitch = imu_pitch - previous_imu_pitch;
-
-  double diff_imu_yaw;
-  if (fabs(imu_yaw - previous_imu_yaw) > M_PI)
-  {
-    if (imu_yaw > 0)
-      diff_imu_yaw = (imu_yaw - previous_imu_yaw) - M_PI * 2;
-    else
-      diff_imu_yaw = -M_PI * 2 - (imu_yaw - previous_imu_yaw);
-  }
-  else
-    diff_imu_yaw = imu_yaw - previous_imu_yaw;
-
-  imu.header = input->header;
-  imu.linear_acceleration.x = input->linear_acceleration.x;
-  imu.linear_acceleration.y = input->linear_acceleration.y;
-  imu.linear_acceleration.z = input->linear_acceleration.z;
-  // imu.linear_acceleration.y = 0;
-  // imu.linear_acceleration.z = 0;
-
-  if (diff_time != 0)
-  {
-    imu.angular_velocity.x = diff_imu_roll / diff_time;
-    imu.angular_velocity.y = diff_imu_pitch / diff_time;
-    imu.angular_velocity.z = diff_imu_yaw / diff_time;
-  }
-  else
-  {
-    imu.angular_velocity.x = 0;
-    imu.angular_velocity.y = 0;
-    imu.angular_velocity.z = 0;
-  }
-
-  imu_calc(input->header.stamp);
-
-  previous_time = current_time;
-  previous_imu_roll = imu_roll;
-  previous_imu_pitch = imu_pitch;
-  previous_imu_yaw = imu_yaw;
-}
 static void matching_status()
 {
   if (fitness_score >= 200.0)
@@ -1317,17 +1014,14 @@ static void matching_status()
   relocal_flag_pub.publish(relocal_flag);
 }
 
-static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
+static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
-
   if (need_initial_)
   {
     ROS_ERROR("ndt_matching.cpp:: points_callback  need_initial_ = %d", need_initial_);
     return;
   }
 
-  // static float current_yaw_;
-  // Justin map成功load，并且init_pose被设定后才会执行此分支（）
   if (map_loaded == 1 && init_pos_set == 1)
   {
     matching_start = std::chrono::system_clock::now();
@@ -1345,8 +1039,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZ>(filtered_scan));
     int scan_points_num = filtered_scan_ptr->size();
 
-    Eigen::Matrix4f t(Eigen::Matrix4f::Identity());  // base_link
-    Eigen::Matrix4f t2(Eigen::Matrix4f::Identity()); // localizer
+    Eigen::Matrix4f t(Eigen::Matrix4f::Identity());   // base_link
+    Eigen::Matrix4f t2(Eigen::Matrix4f::Identity());  // localizer
 
     std::chrono::time_point<std::chrono::system_clock> align_start, align_end, getFitnessScore_start,
         getFitnessScore_end;
@@ -1373,18 +1067,9 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     }
 #endif
 
-    /*请在这里修改 new_add*/
-    /***********************************************************************/
-    // Guess the initial gross estimation of the transformation
-    // predict_pose.x = previous_pose.x + offset_x;
-    // predict_pose.y = previous_pose.y + offset_y;
-
-    ////ROS_INFO("THE VALUE OF FITNESS SCORE IS:", fitness_score);
-
     pose predict_pose_for_ndt;
     if (inital_pose_flag == false)
     {
-
       natural_pose_msg.header.frame_id = "map";
       natural_pose_msg.header.stamp = current_scan_time;
       natural_pose_msg.pose.position.x = previous_pose.x + offset_x;
@@ -1404,17 +1089,18 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       double pose_distance = sqrt(odom_offset_x * odom_offset_x + odom_offset_y * odom_offset_y);
       ////ROS_ERROR("ndt_matching.cpp:: pose_distance = %f for reposition", pose_distance);
 
-      if ((waypoint_change_flag == 3) || (waypoint_change_flag == 4) || (waypoint_change_flag == 6) || (waypoint_change_flag == 7)) // note-justin  室内参数
+      if ((waypoint_change_flag == 3) || (waypoint_change_flag == 4) || (waypoint_change_flag == 6) ||
+          (waypoint_change_flag == 7))  // note-justin  室内参数
       {
         fitness_score_threshold = fitness_score_threshold_indoor;
         ////ROS_ERROR("ndt_matching.cpp:: fitness_score_threshold = %f, indoor = %d", fitness_score_threshold, indoor_);
       }
-      else if (waypoint_change_flag == 0) // note-justin  室外参数
+      else if (waypoint_change_flag == 0)  // note-justin  室外参数
       {
         fitness_score_threshold = fitness_score_threshold_outdoor;
         ////ROS_ERROR("ndt_matching.cpp:: fitness_score_threshold = %f, indoor = %d", fitness_score_threshold, indoor_);
       }
-      else if (waypoint_change_flag == 100) // note-justin 如果无法获得路径信息的时候，特指打点的时候
+      else if (waypoint_change_flag == 100)  // note-justin 如果无法获得路径信息的时候，特指打点的时候
       {
         if (fitness_score_mean > fitness_score_threshold_indoor)
         {
@@ -1426,112 +1112,14 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
         }
       }
 
-      if ((fitness_score_median < fitness_score_threshold_outdoor) && (pose_distance < 3.5))
+      if (jump_lift_localization_flag == true)  // 5->4  note-justin 出电梯的时候
       {
-
-        // double diverge_distance = hypot(previous_pose.x - current_odom_pose.pose.pose.position.x, previous_pose.y - current_odom_pose.pose.pose.position.y);
-        ////ROS_INFO("ndt_matching.cpp: diverge_distance: %f", diverge_distance);
-
-        predict_pose.x = previous_pose.x + offset_x;
-        predict_pose.y = previous_pose.y + offset_y;
-        predict_pose.z = previous_pose.z + offset_z;
-        predict_pose.roll = previous_pose.roll;
-        predict_pose.pitch = previous_pose.pitch;
-        predict_pose.yaw = previous_pose.yaw + offset_yaw;
-        // predict_pose.yaw = previous_pose.yaw + offset_imu_yaw; // note-justin     机器人定位丢失的时候，使用机器人的角度，维持yaw值保持不变
-
-        predict_pose_for_ndt = predict_pose;
-
-        ndt_normal_cnt_divide = ndt_normal_cnt % 201;
-        switch (ndt_normal_cnt_divide)
-        {
-        case 200:
-          store_pose = predict_pose;
-          break;
-
-        default:
-          break;
-        }
-
-        std_msgs::Bool Trans_flag;
-        Trans_flag.data = false;
-        wheel_odom_trans_pub.publish(Trans_flag);
-        ndt_normal_cnt++;
-
-        // ROS_INFO("=============================================================================================================================================================================");
-
-        // ROS_INFO("ndt_matching.cpp:: --------------------MATCH USE NDT---------%d--------%d----------%f----------%f----------", ndt_normal_cnt, odom_pose_used_cnt, pose_distance, odom_offset_yaw);
-        // ROS_ERROR("ndt_matching.cpp:: store_pose.x = %f, store_pose.y = %f, store_pose.z = %f, encoder_position_cnt = %d", encoder_position_cnt, store_pose.x, store_pose.y, store_pose.z, encoder_position_cnt);
-        // ROS_INFO("ndt_matching.cpp::STABLE! fitness_score: %f", fitness_score);
-        // ROS_INFO("ndt_matching.cpp::odom_offset_x: %f, odom_offset_y: %f, odom_offset_z: %f, offset_yaw: %f", odom_offset_x, odom_offset_y, odom_offset_z, offset_z, offset_yaw);
-        // ROS_INFO("ndt_matching.cpp::diff_x_new: %f, diff_y_new: %f, diff_z_new: %f", diff_x_new, diff_y_new, diff_z_new);
-        // ROS_INFO("ndt_matching.cpp::STABLE! predict_pose.x: %f, predict_pose.y: %f, predict_pose.z: %f, predict_pose.yaw: %f", predict_pose.x, predict_pose.y, predict_pose.z, predict_pose.yaw);
-        // ROS_INFO("ndt_matching.cpp:: fitness_score: %f, fitness_score_median = %f fitness_score_mean = %f fitness_score_threshold = %f robot stable!! pose_distance = %f", fitness_score, fitness_score_median, fitness_score_mean, fitness_score_threshold, pose_distance);
-        // ROS_INFO("ndt_matching.cpp:: -------------------------------------------------------------------");
-      }
-      else
-      {
-        // note-justin   不再使用odom的切换
-        /*
-        predict_pose.x = current_odom_pose.pose.pose.position.x;
-        predict_pose.y = current_odom_pose.pose.pose.position.y;
-        predict_pose.z = current_odom_pose.pose.pose.position.z + _tf_z;
-        predict_pose.roll = 0.0;
-        predict_pose.pitch = 0.0;
-        predict_pose.yaw = current_odom_pose_yaw;
-
-        previous_pose.x = current_odom_pose.pose.pose.position.x;
-        previous_pose.y = current_odom_pose.pose.pose.position.y;
-        previous_pose.z = current_odom_pose.pose.pose.position.z + _tf_z;
-        previous_pose.roll = 0.0;
-        previous_pose.pitch = 0.0;
-        previous_pose.yaw = current_odom_pose_yaw;
-
-        */
-
-        predict_pose.x = previous_pose.x + offset_x;
-        predict_pose.y = previous_pose.y + offset_y;
-        predict_pose.z = store_pose.z; // previous_pose.z + offset_z;
-        predict_pose.roll = previous_pose.roll;
-        predict_pose.pitch = previous_pose.pitch;
-        predict_pose.yaw = previous_pose.yaw + offset_yaw;
-        // predict_pose.yaw = previous_pose.yaw + offset_imu_yaw; // note-justin     机器人定位丢失的时候，使用机器人的角度，维持yaw值保持不变
-        predict_pose_for_ndt = predict_pose;
-
-        encoder_position_cnt++;
-        // ROS_ERROR("ndt_matching.cpp:: ---------------MATCH USE ODOM---------%d--------%d----------%f----------%f----------", ndt_normal_cnt, odom_pose_used_cnt, pose_distance, odom_offset_yaw);
-        // ROS_ERROR("ndt_matching.cpp:: pose_distance = %f for reposition", pose_distance);
-        // ROS_ERROR("ndt_matching.cpp:: current_odom_pose_yaw: %f", current_odom_pose_yaw);
-        // ROS_ERROR("ndt_matching.cpp:: fitness_score: %f, fitness_score_median = %f fitness_score_mean = %f fitness_score_threshold = %f robot lost!! pose_distance = %f", fitness_score, fitness_score_median, fitness_score_mean, fitness_score_threshold, pose_distance);
-        // ROS_ERROR("ndt_matching.cpp:: LOST! fitness_score: %f", fitness_score);
-        // ROS_ERROR("ndt_matching.cpp:: offset_x: %f, offset_y: %f, offset_z: %f, offset_yaw: %f", offset_x, offset_y, offset_z, offset_z, offset_yaw);
-        // ROS_ERROR("ndt_matching.cpp:: diff_x_new: %f, diff_y_new: %f, diff_z_new: %f", diff_x_new, diff_y_new, diff_z_new);
-        // ROS_ERROR("ndt_matching.cpp:: LOST! predict_pose.x: %f, predict_pose.y: %f, predict_pose.z: %f, predict_pose.yaw: %f", predict_pose.x, predict_pose.y, predict_pose.z, predict_pose.yaw);
-        // ROS_ERROR("ndt_matching.cpp:: LOST! store_pose.x: %f, store_pose.y: %f, store_pose.z: %f, store_pose.yaw: %f", store_pose.x, store_pose.y, store_pose.z, store_pose.yaw);
-        // ROS_ERROR("ndt_matching.cpp:: -------------------------------------------------------------------");
-        // ROS_ERROR("ndt_matching.cpp:: -------------------------------------------------------------------");
-        /*
-         if (start_flag.data == 1)
-         {
-           std_msgs::String sound_content;
-           sound_content.data = "lost";
-           sound_pub_.publish(sound_content);
-         }
-         */
-        std_msgs::Bool Trans_flag;
-        Trans_flag.data = true;
-        wheel_odom_trans_pub.publish(Trans_flag);
-      }
-
-      if (jump_lift_localization_flag == true) // 5->4  note-justin 出电梯的时候
-      {
-
         current_pose.x = current_odom_pose.pose.pose.position.x;
         current_pose.y = current_odom_pose.pose.pose.position.y;
         current_pose.z = current_odom_pose.pose.pose.position.z;
         current_pose.roll = 0.0;
         current_pose.pitch = 0.0;
-        current_pose.yaw = current_odom_pose_yaw; // note-justin  使用IMU的YAW
+        current_pose.yaw = current_odom_pose_yaw;  // note-justin  使用IMU的YAW
 
         current_pose_imu = current_pose_odom = current_pose_imu_odom = current_pose;
 
@@ -1540,7 +1128,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
         previous_pose.z = current_odom_pose.pose.pose.position.z;
         previous_pose.roll = 0.0;
         previous_pose.pitch = 0.0;
-        previous_pose.yaw = current_odom_pose_yaw; // note-justin  使用IMU的YAW
+        previous_pose.yaw = current_odom_pose_yaw;  // note-justin  使用IMU的YAW
 
         offset_x = 0.0;
         offset_y = 0.0;
@@ -1572,16 +1160,26 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
         Trans_flag.data = true;
         wheel_odom_trans_pub.publish(Trans_flag);
 
-        ROS_INFO("======================OUT LIFT========%d=================%f================", waypoint_change_flag, ndt_reliability_data_mean);
-        ROS_INFO("ndt_matching.cpp: current_odom_pose.pose.pose.position.x = %f, current_odom_pose.pose.pose.position.y = %f, current_odom_pose.pose.pose.position.z = %f, imu_yaw = %f, current_odom_pose_yaw = %f", current_odom_pose.pose.pose.position.x, current_odom_pose.pose.pose.position.y, current_odom_pose.pose.pose.position.z, imu_yaw, current_odom_pose_yaw);
+        ROS_INFO("======================OUT LIFT========%d=================%f================", waypoint_change_flag,
+                 ndt_reliability_data_mean);
+        ROS_INFO(
+            "ndt_matching.cpp: current_odom_pose.pose.pose.position.x = %f, current_odom_pose.pose.pose.position.y = "
+            "%f, current_odom_pose.pose.pose.position.z = %f, imu_yaw = %f, current_odom_pose_yaw = %f",
+            current_odom_pose.pose.pose.position.x, current_odom_pose.pose.pose.position.y,
+            current_odom_pose.pose.pose.position.z, imu_yaw, current_odom_pose_yaw);
 
         ROS_INFO("======================================================\n\n");
 
         if (ndt_reliability_data_mean <= 50)
         {
           jump_lift_localization_flag = false;
-          ROS_INFO("======================FINALLY OUT LIFT========%d=================%f================", waypoint_change_flag, ndt_reliability_data_mean);
-          ROS_INFO("ndt_matching.cpp: current_odom_pose.pose.pose.position.x = %f, current_odom_pose.pose.pose.position.y = %f, current_odom_pose.pose.pose.position.z = %f, imu_yaw = %f, current_odom_pose_yaw = %f", current_odom_pose.pose.pose.position.x, current_odom_pose.pose.pose.position.y, current_odom_pose.pose.pose.position.z, imu_yaw, current_odom_pose_yaw);
+          ROS_INFO("======================FINALLY OUT LIFT========%d=================%f================",
+                   waypoint_change_flag, ndt_reliability_data_mean);
+          ROS_INFO(
+              "ndt_matching.cpp: current_odom_pose.pose.pose.position.x = %f, current_odom_pose.pose.pose.position.y = "
+              "%f, current_odom_pose.pose.pose.position.z = %f, imu_yaw = %f, current_odom_pose_yaw = %f",
+              current_odom_pose.pose.pose.position.x, current_odom_pose.pose.pose.position.y,
+              current_odom_pose.pose.pose.position.z, imu_yaw, current_odom_pose_yaw);
 
           ROS_INFO("======================================================\n\n");
         }
@@ -1613,7 +1211,6 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
 
     if (_use_imu == true && _use_odom == true)
     {
-      imu_odom_calc(current_scan_time);
       // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d", _use_imu, _use_odom);
     }
     if (_use_imu == true && _use_odom == false)
@@ -1621,31 +1218,31 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       imu_calc(current_scan_time);
       // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d", _use_imu, _use_odom);
     }
-    if (_use_imu == false && _use_odom == true)
-    {
-      odom_calc(current_scan_time);
-      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d", _use_imu, _use_odom);
-    }
 
     if (_use_imu == true && _use_odom == true)
     {
       predict_pose_for_ndt = predict_pose_imu_odom;
-      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose_imu_odom.x = %f predict_pose_imu_odom.y = %f  predict_pose_imu_odom.z = %f", _use_imu, _use_odom, predict_pose_imu_odom.x, predict_pose_imu_odom.y, predict_pose_imu_odom.z);
+      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose_imu_odom.x = %f
+      // predict_pose_imu_odom.y = %f  predict_pose_imu_odom.z = %f", _use_imu, _use_odom, predict_pose_imu_odom.x,
+      // predict_pose_imu_odom.y, predict_pose_imu_odom.z);
     }
     else if (_use_imu == true && _use_odom == false)
     {
       predict_pose_for_ndt = predict_pose_imu;
-      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose_imu.x = %f predict_pose_imu.y = %f  predict_pose_imu.z = %f", _use_imu, _use_odom, predict_pose_imu.x, predict_pose_imu.y, predict_pose_imu.z);
+      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose_imu.x = %f predict_pose_imu.y = %f
+      // predict_pose_imu.z = %f", _use_imu, _use_odom, predict_pose_imu.x, predict_pose_imu.y, predict_pose_imu.z);
     }
     else if (_use_imu == false && _use_odom == true)
     {
       predict_pose_for_ndt = predict_pose_odom;
-      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose_odom.x = %f predict_pose_odom.y = %f  predict_pose_odom.z = %f", _use_imu, _use_odom, predict_pose_odom.x, predict_pose_odom.y, predict_pose_odom.z);
+      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose_odom.x = %f predict_pose_odom.y = %f
+      // predict_pose_odom.z = %f", _use_imu, _use_odom, predict_pose_odom.x, predict_pose_odom.y, predict_pose_odom.z);
     }
     else
     {
       predict_pose_for_ndt = predict_pose;
-      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose.x = %f predict_pose.y = %f  predict_pose.z = %f", _use_imu, _use_odom, predict_pose.x, predict_pose.y, predict_pose.z);
+      // ROS_ERROR("ndt_matching.cpp:: _use_imu = %d _use_odom = %d, predict_pose.x = %f predict_pose.y = %f
+      // predict_pose.z = %f", _use_imu, _use_odom, predict_pose.x, predict_pose.y, predict_pose.z);
     }
 
     Eigen::Translation3f init_translation(predict_pose_for_ndt.x, predict_pose_for_ndt.y, predict_pose_for_ndt.z);
@@ -1718,9 +1315,9 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
 
       trans_probability = ndt.getTransformationProbability();
 
-      Eigen::Matrix<double, 6, 1> score_gradient; // note-justin
-      Eigen::Matrix<double, 6, 6> hessian;        // note- justin
-      Eigen::Matrix<double, 6, 1> p;              // note- justin
+      Eigen::Matrix<double, 6, 1> score_gradient;  // note-justin
+      Eigen::Matrix<double, 6, 6> hessian;         // note- justin
+      Eigen::Matrix<double, 6, 1> p;               // note- justin
       bool compute_hessian = true;
       Eigen::Vector3d x_trans;
       Eigen::Vector3d c_inv;
@@ -1740,7 +1337,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
 
     pthread_mutex_unlock(&mutex);
 
-    tf::Matrix3x3 mat_l; // localizer
+    tf::Matrix3x3 mat_l;  // localizer
     mat_l.setValue(static_cast<double>(t(0, 0)), static_cast<double>(t(0, 1)), static_cast<double>(t(0, 2)),
                    static_cast<double>(t(1, 0)), static_cast<double>(t(1, 1)), static_cast<double>(t(1, 2)),
                    static_cast<double>(t(2, 0)), static_cast<double>(t(2, 1)), static_cast<double>(t(2, 2)));
@@ -1751,7 +1348,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     localizer_pose.z = t(2, 3);
     mat_l.getRPY(localizer_pose.roll, localizer_pose.pitch, localizer_pose.yaw, 1);
 
-    tf::Matrix3x3 mat_b; // base_link
+    tf::Matrix3x3 mat_b;  // base_link
     mat_b.setValue(static_cast<double>(t2(0, 0)), static_cast<double>(t2(0, 1)), static_cast<double>(t2(0, 2)),
                    static_cast<double>(t2(1, 0)), static_cast<double>(t2(1, 1)), static_cast<double>(t2(1, 2)),
                    static_cast<double>(t2(2, 0)), static_cast<double>(t2(2, 1)), static_cast<double>(t2(2, 2)));
@@ -1915,15 +1512,14 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       ndt_pose_msg.pose.orientation.w = ndt_q.w();
     }
 
-    if (stay_lift_localization_flag == true) // 4->5 note-justin  进入电梯的时候
+    if (stay_lift_localization_flag == true)  // 4->5 note-justin  进入电梯的时候
     {
-
       current_pose.x = current_odom_pose.pose.pose.position.x;
       current_pose.y = current_odom_pose.pose.pose.position.y;
       current_pose.z = current_odom_pose.pose.pose.position.z;
       current_pose.roll = 0.0;
       current_pose.pitch = 0.0;
-      current_pose.yaw = current_odom_pose_yaw; // note-justin  使用IMU的YAW
+      current_pose.yaw = current_odom_pose_yaw;  // note-justin  使用IMU的YAW
 
       current_pose_imu = current_pose_odom = current_pose_imu_odom = current_pose;
 
@@ -1932,7 +1528,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       previous_pose.z = current_odom_pose.pose.pose.position.z;
       previous_pose.roll = 0.0;
       previous_pose.pitch = 0.0;
-      previous_pose.yaw = current_odom_pose_yaw; // note-justin  使用IMU的YAW
+      previous_pose.yaw = current_odom_pose_yaw;  // note-justin  使用IMU的YAW
 
       offset_x = 0.0;
       offset_y = 0.0;
@@ -1966,13 +1562,19 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       ndt_pose_msg.pose.position.y = current_odom_pose.pose.pose.position.y;
       ndt_pose_msg.pose.position.z = current_odom_pose.pose.pose.position.z;
       ndt_pose_msg.pose.orientation = current_odom_pose.pose.pose.orientation;
-      // ndt_pose_msg.pose.orientation = tf::createQuaternionMsgFromYaw(current_odom_pose_yaw); // note-justin YAW使用IMU的数据
-      ROS_INFO("=====================INTO LIFT=======waypoint_change_flag = %d===%f== ", waypoint_change_flag, ndt_reliability_data_mean);
-      ROS_ERROR("ndt_matching.cpp: current_odom_pose.pose.pose.position.x = %f", current_odom_pose.pose.pose.position.x);
-      ROS_ERROR("ndt_matching.cpp: current_odom_pose.pose.pose.position.y = %f", current_odom_pose.pose.pose.position.y);
-      ROS_ERROR("ndt_matching.cpp: current_odom_pose.pose.pose.position.z = %f", current_odom_pose.pose.pose.position.z);
+      // ndt_pose_msg.pose.orientation = tf::createQuaternionMsgFromYaw(current_odom_pose_yaw); // note-justin
+      // YAW使用IMU的数据
+      ROS_INFO("=====================INTO LIFT=======waypoint_change_flag = %d===%f== ", waypoint_change_flag,
+               ndt_reliability_data_mean);
+      ROS_ERROR("ndt_matching.cpp: current_odom_pose.pose.pose.position.x = %f",
+                current_odom_pose.pose.pose.position.x);
+      ROS_ERROR("ndt_matching.cpp: current_odom_pose.pose.pose.position.y = %f",
+                current_odom_pose.pose.pose.position.y);
+      ROS_ERROR("ndt_matching.cpp: current_odom_pose.pose.pose.position.z = %f",
+                current_odom_pose.pose.pose.position.z);
       ROS_ERROR("ndt_matching.cpp: imu_yaw = %f current_odom_pose_yaw = %f", imu_yaw, current_odom_pose_yaw);
-      ROS_INFO("=====================INTO LIFT========global_closest_waypoint = %d===%f= \n\n", global_closest_waypoint, ndt_reliability_data_mean);
+      ROS_INFO("=====================INTO LIFT========global_closest_waypoint = %d===%f= \n\n", global_closest_waypoint,
+               ndt_reliability_data_mean);
 
       std_msgs::Bool into_lift_flag;
       into_lift_flag.data = true;
@@ -1991,25 +1593,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       use_wheel_odom_flag = true;
     }
 
-    // current_pose.roll = 0;
-    // current_pose.pitch = 0;
-    // current_pose.yaw = 0.0;
-    // current_yaw_ = current_pose.yaw + 3.1415;
-    // current_q.setRPY(current_pose.roll, current_pose.pitch, current_yaw_);
-
     current_q.setRPY(current_pose.roll, current_pose.pitch, current_pose.yaw);
-    // current_pose is published by vel_pose_mux
-    /*
-    current_pose_msg.header.frame_id = "map";
-    current_pose_msg.header.stamp = current_scan_time;
-    current_pose_msg.pose.position.x = current_pose.x;
-    current_pose_msg.pose.position.y = current_pose.y;
-    current_pose_msg.pose.position.z = current_pose.z;
-    current_pose_msg.pose.orientation.x = current_q.x();
-    current_pose_msg.pose.orientation.y = current_q.y();
-    current_pose_msg.pose.orientation.z = current_q.z();
-    current_pose_msg.pose.orientation.w = current_q.w();
-    */
 
     localizer_q.setRPY(localizer_pose.roll, localizer_pose.pitch, localizer_pose.yaw);
     if (_use_local_transform == true)
@@ -2040,7 +1624,6 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     }
 
     predict_pose_pub.publish(predict_pose_msg);
-    // ndt_pose_msg.pose.position.y -= 0.3;
 
     float ndt_yaw = 0.0;
     ndt_yaw = current_pose.yaw;
@@ -2051,19 +1634,12 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     ndt_yaw_pub_msg.data = ndt_yaw;
     ndt_yaw_pub.publish(ndt_yaw_pub_msg);
 
-    // current_pose is published by vel_pose_mux
-    //    current_pose_pub.publish(current_pose_msg);
     localizer_pose_pub.publish(localizer_pose_msg);
-
-    // Send TF "base_link" to "map"
-    // current_pose.x = 0.0;
-    // current_pose.y = 0.0;
-    // current_pose.z = 0.0;
 
     // Justin current_pose通过TF的方式发布出去 Send TF "base_link" to "map"
     transform.setOrigin(tf::Vector3(current_pose.x, current_pose.y, current_pose.z));
     transform.setRotation(current_q);
-    //   br.sendTransform(tf::StampedTransform(transform, current_scan_time, "map", "base_link"));
+
     if (_use_local_transform == true)
     {
       br.sendTransform(tf::StampedTransform(local_transform * transform, current_scan_time, "map", "base_link"));
@@ -2109,25 +1685,26 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     ndt_stat_msg.header.stamp = current_scan_time;
     ndt_stat_msg.exe_time = time_ndt_matching.data;
 
-    // ROS_ERROR("ndt_matching.cpp:: exe_time = %f iteration = %f  trans_probability = %f fitness_score = %f", exe_time, iteration, trans_probability, fitness_score);
+    // ROS_ERROR("ndt_matching.cpp:: exe_time = %f iteration = %f  trans_probability = %f fitness_score = %f", exe_time,
+    // iteration, trans_probability, fitness_score);
 
     if (iteration >= 10000)
     {
-      iteration = 10000; // note-justin   防止溢出
+      iteration = 10000;  // note-justin   防止溢出
     }
     if (exe_time >= 10000)
     {
-      exe_time = 10000; // note-justin   防止溢出
+      exe_time = 10000;  // note-justin   防止溢出
     }
 
     if (trans_probability >= 10000)
     {
-      trans_probability = 10000; // note-justin   防止溢出
+      trans_probability = 10000;  // note-justin   防止溢出
     }
 
     if (fitness_score >= 10000)
     {
-      fitness_score = 10000; // note-justin   防止溢出
+      fitness_score = 10000;  // note-justin   防止溢出
     }
 
     // 将数据加入滤波器缓存
@@ -2140,7 +1717,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     }
 
     // 计算滤波后的结果
-    double filtered_fitness_score = std::accumulate(fitness_filter_buf.begin(), fitness_filter_buf.end(), 0.0) / fitness_filter_buf.size();
+    double filtered_fitness_score =
+        std::accumulate(fitness_filter_buf.begin(), fitness_filter_buf.end(), 0.0) / fitness_filter_buf.size();
 
     ndt_stat_msg.iteration = iteration;
     ndt_stat_msg.score = filtered_fitness_score;
@@ -2150,66 +1728,17 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
 
     ndt_stat_pub.publish(ndt_stat_msg);
     /* Compute NDT_Reliability */
-    ndt_relibility_data = Wa * (exe_time / 100.0) * 100.0 + Wb * (iteration / 100.0) * 100.0 + Wc * ((2.0 - trans_probability) / 2.0) * 100.0 + Wd * 100 * fitness_score;
-    // ROS_INFO("ndt_matching.cpp:: exe_time = %f iteration = %d trans_probability = %f fitness_score = %f ndt_relibility_data = %f", exe_time, iteration, trans_probability, fitness_score, ndt_relibility_data);
+    ndt_relibility_data = Wa * (exe_time / 100.0) * 100.0 + Wb * (iteration / 100.0) * 100.0 +
+                          Wc * ((2.0 - trans_probability) / 2.0) * 100.0 + Wd * 100 * fitness_score;
+    // ROS_INFO("ndt_matching.cpp:: exe_time = %f iteration = %d trans_probability = %f fitness_score = %f
+    // ndt_relibility_data = %f", exe_time, iteration, trans_probability, fitness_score, ndt_relibility_data);
 
     ndt_relibility_data_cnt++;
-    if (ndt_relibility_data_cnt >= INT32_MAX)
-      ndt_relibility_data_cnt = 0;
-
-    ndt_cnt_divide = ndt_relibility_data_cnt % 10;
-    switch (ndt_cnt_divide)
-    {
-    case 0:
-      ndt_relibility_data_0 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score0 = %f", ndt_cnt_divide, fitness_score0);
-      break;
-    case 1:
-      ndt_relibility_data_1 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score1 = %f", ndt_cnt_divide, fitness_score1);
-      break;
-    case 2:
-      ndt_relibility_data_2 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score2 = %f", ndt_cnt_divide, fitness_score2);
-      break;
-    case 3:
-      ndt_relibility_data_3 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score3 = %f", ndt_cnt_divide, fitness_score3);
-      break;
-    case 4:
-      ndt_relibility_data_4 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score4 = %f", ndt_cnt_divide, fitness_score4);
-      break;
-    case 5:
-      ndt_relibility_data_5 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score5 = %f", ndt_cnt_divide, fitness_score5);
-      break;
-    case 6:
-      ndt_relibility_data_6 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score0 = %f", ndt_cnt_divide, fitness_score0);
-      break;
-    case 7:
-      ndt_relibility_data_7 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score1 = %f", ndt_cnt_divide, fitness_score1);
-      break;
-    case 8:
-      ndt_relibility_data_8 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score2 = %f", ndt_cnt_divide, fitness_score2);
-      break;
-    case 9:
-      ndt_relibility_data_9 = ndt_relibility_data;
-      // ROS_ERROR("ndt_matching.cpp:: ndt_cnt_divide = %d, fitness_score3 = %f", ndt_cnt_divide, fitness_score3);
-      break;
-
-    default:
-      break;
-    }
-
-    ndt_reliability_data_mean = (ndt_relibility_data_0 + ndt_relibility_data_1 + ndt_relibility_data_2 + ndt_relibility_data_3 + ndt_relibility_data_4 + ndt_relibility_data_5 + ndt_relibility_data_6 + ndt_relibility_data_7 + ndt_relibility_data_8 + ndt_relibility_data_9) / float(10);
 
     ndt_reliability.data = ndt_reliability_data_mean;
 
-    // ROS_INFO("ndt_matching.cpp:: ndt_relibility_data = %f fitness_score = %f exe_time = %f iteration = %f  trans_probability = %f", ndt_reliability.data, fitness_score, exe_time, iteration, trans_probability);
+    // ROS_INFO("ndt_matching.cpp:: ndt_relibility_data = %f fitness_score = %f exe_time = %f iteration = %f
+    // trans_probability = %f", ndt_reliability.data, fitness_score, exe_time, iteration, trans_probability);
 
     ndt_reliability_pub.publish(ndt_reliability);
 
@@ -2228,35 +1757,37 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     float covariance_coefficient = ndt_reliability_data_mean / 100;
     // note-justin 测试 /10 /100 EVO结果
 
-    ndt_cov_msg.pose.covariance = {0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25, 0.0,
-                                   0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                                   0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                                   0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.06853891945200942};
+    ndt_cov_msg.pose.covariance = { 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
+                                    0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0,
+                                    0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.06853891945200942 };
 
-    if (ndt_relibility_data >= 20.0) // note-justin    不允许过大的阀值
+    if (ndt_relibility_data >= 20.0)  // note-justin    不允许过大的阀值
     {
       covariance_coefficient = 1000.0;
 
-      // ROS_ERROR("ndt_matching.cpp:: ndt_relibility_data = %f ndt_cov_msg.pose.pose.orientation.w = %f", ndt_relibility_data, ndt_cov_msg.pose.pose.orientation.w);
+      // ROS_ERROR("ndt_matching.cpp:: ndt_relibility_data = %f ndt_cov_msg.pose.pose.orientation.w = %f",
+      // ndt_relibility_data, ndt_cov_msg.pose.pose.orientation.w);
 
-      // ROS_ERROR("ndt_matching.cpp:: pose.position.x = %f store_pose.x = %f", ndt_cov_msg.pose.pose.position.x, store_pose.x);
-      // ROS_ERROR("ndt_matching.cpp:: pose.position.y = %f store_pose.y = %f", ndt_cov_msg.pose.pose.position.y, store_pose.y);
-      // ROS_ERROR("ndt_matching.cpp:: pose.position.z = %f store_pose.z = %f", ndt_cov_msg.pose.pose.position.z, store_pose.z);
+      // ROS_ERROR("ndt_matching.cpp:: pose.position.x = %f store_pose.x = %f", ndt_cov_msg.pose.pose.position.x,
+      // store_pose.x); ROS_ERROR("ndt_matching.cpp:: pose.position.y = %f store_pose.y = %f",
+      // ndt_cov_msg.pose.pose.position.y, store_pose.y); ROS_ERROR("ndt_matching.cpp:: pose.position.z = %f
+      // store_pose.z = %f", ndt_cov_msg.pose.pose.position.z, store_pose.z);
 
-      ndt_cov_msg.pose.pose.position.z = store_pose.z; // note-justin
+      ndt_cov_msg.pose.pose.position.z = store_pose.z;  // note-justin
     }
     else
     {
       covariance_coefficient = 1.0;
     }
 
-    if (waypoint_change_flag == 5) // note-justin    不允许过大的阀值
+    if (waypoint_change_flag == 5)  // note-justin    不允许过大的阀值
     {
       covariance_coefficient = 1000.0;
       // tf::Quaternion quaternion = tf::createQuaternionFromRPY(0, 0, imu_yaw);
       // quaternionTFToMsg(quaternion, ndt_cov_msg.pose.pose.orientation);
-      // ROS_ERROR("ndt_matching.cpp:: ndt_relibility_data = %f ndt_cov_msg.pose.pose.orientation.w = %f", ndt_relibility_data, ndt_cov_msg.pose.pose.orientation.w);
-      // ndt_cov_msg.pose.pose.position.z = store_pose.z; // note-justin
+      // ROS_ERROR("ndt_matching.cpp:: ndt_relibility_data = %f ndt_cov_msg.pose.pose.orientation.w = %f",
+      // ndt_relibility_data, ndt_cov_msg.pose.pose.orientation.w); ndt_cov_msg.pose.pose.position.z = store_pose.z; //
+      // note-justin
     }
     else
     {
@@ -2277,8 +1808,14 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
 
     if (false)
     {
-      ROS_ERROR("ndt_matching.cpp:: ndt_pose_msg.pose.position.x = %f ndt_pose_msg.pose.position.y = %f ndt_pose_msg.pose.position.z = %f", ndt_pose_msg.pose.position.x, ndt_pose_msg.pose.position.y, ndt_pose_msg.pose.position.z);
-      ROS_ERROR("ndt_matching.cpp:: pre_ndt_pose_msg.pose.position.x = %f pre_ndt_pose_msg.pose.position.y = %f pre_ndt_pose_msg.pose.position.z = %f", pre_ndt_pose_msg.pose.position.x, pre_ndt_pose_msg.pose.position.y, pre_ndt_pose_msg.pose.position.z);
+      ROS_ERROR(
+          "ndt_matching.cpp:: ndt_pose_msg.pose.position.x = %f ndt_pose_msg.pose.position.y = %f "
+          "ndt_pose_msg.pose.position.z = %f",
+          ndt_pose_msg.pose.position.x, ndt_pose_msg.pose.position.y, ndt_pose_msg.pose.position.z);
+      ROS_ERROR(
+          "ndt_matching.cpp:: pre_ndt_pose_msg.pose.position.x = %f pre_ndt_pose_msg.pose.position.y = %f "
+          "pre_ndt_pose_msg.pose.position.z = %f",
+          pre_ndt_pose_msg.pose.position.x, pre_ndt_pose_msg.pose.position.y, pre_ndt_pose_msg.pose.position.z);
       ndt_pose_msg.pose = pre_ndt_pose_msg.pose;
       ndt_pose_msg.pose.orientation = pre_ndt_pose_msg.pose.orientation;
       previous_pose.x = pre_ndt_pose_msg.pose.position.x;
@@ -2293,7 +1830,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       previous_pose.pitch = 0.0;
       previous_pose.yaw = previous_pose_yaw;
 
-      ROS_ERROR("ndt_matching.cpp:: previous_pose_roll = %f previous_pose_pitch = %f previous_pose_yaw = %f", previous_pose_roll, previous_pose_pitch, previous_pose_yaw);
+      ROS_ERROR("ndt_matching.cpp:: previous_pose_roll = %f previous_pose_pitch = %f previous_pose_yaw = %f",
+                previous_pose_roll, previous_pose_pitch, previous_pose_yaw);
     }
 
     ndt_pose_pub.publish(ndt_pose_msg);
@@ -2305,79 +1843,20 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     pre_ndt_pose_msg.pose.position.z = ndt_pose_msg.pose.position.z;
     pre_ndt_pose_msg.pose.orientation = ndt_pose_msg.pose.orientation;
 
-    // ROS_INFO("ndt_matching.cpp:: ndt_pose_msg.pose.position.x = %f ndt_pose_msg.pose.position.y = %f ndt_pose_msg.pose.position.z = %f fitness_score = %f", ndt_pose_msg.pose.position.x, ndt_pose_msg.pose.position.y, ndt_pose_msg.pose.position.z, fitness_score);
-    // ROS_INFO("ndt_matching.cpp:: pre_ndt_pose_msg.pose.position.x = %f pre_ndt_pose_msg.pose.position.y = %f pre_ndt_pose_msg.pose.position.z = %f fitness_score = %f", pre_ndt_pose_msg.pose.position.x, pre_ndt_pose_msg.pose.position.y, pre_ndt_pose_msg.pose.position.z, fitness_score);
-
-    /*
-    //Write log
-    if (!ofs)
-    {
-      std::cerr << "Could not open " << filename << "." << std::endl;
-      exit(1);
-    }
-    //static ros::Time start_time = input->header.stamp;
-
-    ofs << input->header.seq << "," << scan_points_num << "," << step_size << "," << trans_eps << "," << std::fixed
-        << std::setprecision(5) << current_pose.x << "," << std::fixed << std::setprecision(5) << current_pose.y << ","
-        << std::fixed << std::setprecision(5) << current_pose.z << "," << current_pose.roll << "," << current_pose.pitch
-        << "," << current_pose.yaw << "," << predict_pose.x << "," << predict_pose.y << "," << predict_pose.z << ","
-        << predict_pose.roll << "," << predict_pose.pitch << "," << predict_pose.yaw << ","
-        << current_pose.x - predict_pose.x << "," << current_pose.y - predict_pose.y << ","
-        << current_pose.z - predict_pose.z << "," << current_pose.roll - predict_pose.roll << ","
-        << current_pose.pitch - predict_pose.pitch << "," << current_pose.yaw - predict_pose.yaw << ","
-        << predict_pose_error << "," << iteration << "," << fitness_score << "," << trans_probability << ","
-        << ndt_reliability.data << "," << current_velocity << "," << current_velocity_smooth << "," << current_accel
-        << "," << angular_velocity << "," << time_ndt_matching.data << "," << align_time << "," << getFitnessScore_time
-        << std::endl;
-*/
-    /*
-      std::cout << "-----------------------------------------------------------------" << std::endl;
-      std::cout << "Sequence: " << input->header.seq << std::endl;
-      std::cout << "Timestamp: " << input->header.stamp << std::endl;
-      std::cout << "Frame ID: " << input->header.frame_id << std::endl;
-      //		std::cout << "Number of Scan Points: " << scan_ptr->size() << " points." << std::endl;
-      std::cout << "Number of Filtered Scan Points: " << scan_points_num << " points." << std::endl;
-      std::cout << "NDT has converged: " << has_converged << std::endl;
-      std::cout << "Fitness Score: " << fitness_score << std::endl;
-      std::cout << "Transformation Probability: " << trans_probability << std::endl;
-      std::cout << "Execution Time: " << exe_time << " ms." << std::endl;
-      std::cout << "Number of Iterations: " << iteration << std::endl;
-      std::cout << "NDT Reliability: " << ndt_reliability.data << std::endl;
-      std::cout << "(x,y,z,roll,pitch,yaw): " << std::endl;
-      std::cout << "(" << current_pose.x << ", " << current_pose.y << ", " << current_pose.z << ", " << current_pose.roll
-                << ", " << current_pose.pitch << ", " << current_pose.yaw << ")" << std::endl;
-      std::cout << "Transformation Matrix: " << std::endl;
-      std::cout << t << std::endl;
-      std::cout << "Align time: " << align_time << std::endl;
-      std::cout << "Get fitness score time: " << getFitnessScore_time << std::endl;
-      std::cout << "-----------------------------------------------------------------" << std::endl;
-
-      */
-
-    if (exe_time > 200000)
-    {
-      ROS_ERROR("ndt_matching.cpp:: exe_time = %f need_initial_ = %d", exe_time, need_initial_);
-      need_initial_ = false;
-    }
-    // Update offset
     if (_offset == "linear")
     {
-      if (abs(diff_x) > 1.5 || abs(diff_y) > 1.5 || abs(diff_z) > 1.5 || abs(diff_yaw) > 1.5)
-      {
-        // ROS_INFO("----------------------%f-------------------------", ndt_relibility_data);
-        // ROS_ERROR("ndt_matching.cpp:: diff_x = %f diff_y = %f  diff_z = %f diff_yaw = %f", diff_x, diff_y, diff_z, diff_yaw);
-        // ROS_ERROR("ndt_matching.cpp:: offset_imu_x = %f offset_imu_y = %f  offset_imu_z = %f offset_imu_yaw = %f", offset_imu_x, offset_imu_y, offset_imu_z, offset_imu_yaw);
-      }
-      offset_x = abs(diff_x) < 1.5 ? diff_x : offset_imu_x; // note-justin;
+      offset_x = abs(diff_x) < 1.5 ? diff_x : offset_imu_x;  // note-justin;
       offset_x = abs(offset_x) < 1.5 ? offset_x : 0.0;
 
-      offset_y = abs(diff_y) < 1.5 ? diff_y : offset_imu_y; // diff_x;
+      offset_y = abs(diff_y) < 1.5 ? diff_y : offset_imu_y;  // diff_x;
       offset_y = abs(offset_y) < 1.5 ? offset_y : 0.0;
 
-      offset_z = abs(diff_z) < 1.5 ? diff_z : offset_imu_z; // diff_x;
+      offset_z = abs(diff_z) < 1.5 ? diff_z : offset_imu_z;  // diff_x;
       offset_z = abs(offset_z) < 1.5 ? offset_z : 0.0;
 
-      offset_yaw = abs(diff_yaw) < 1.5 ? diff_yaw : offset_imu_yaw; // note-justin  offset_imu_yaw diff_yaw;//  abs(diff_yaw) < 0.03 ? diff_yaw : offset_imu_yaw;
+      offset_yaw =
+          abs(diff_yaw) < 1.5 ? diff_yaw : offset_imu_yaw;  // note-justin  offset_imu_yaw diff_yaw;//  abs(diff_yaw) <
+                                                            // 0.03 ? diff_yaw : offset_imu_yaw;
       offset_yaw = abs(offset_yaw) < 1.5 ? offset_yaw : 0.0;
     }
     else if (_offset == "quadratic")
@@ -2387,7 +1866,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       offset_z = diff_z;
       // offset_yaw = abs(diff_yaw) < 0.03 ? diff_yaw : offset_imu_yaw;
       offset_yaw = offset_imu_yaw;
-      // ROS_ERROR("ndt_matching.cpp:: offset_imu_yaw = %f diff_yaw = %f offset_yaw = %f _offset = quadratic", offset_imu_yaw, diff_yaw, offset_yaw);
+      // ROS_ERROR("ndt_matching.cpp:: offset_imu_yaw = %f diff_yaw = %f offset_yaw = %f _offset = quadratic",
+      // offset_imu_yaw, diff_yaw, offset_yaw);
     }
     else if (_offset == "zero")
     {
@@ -2445,7 +1925,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
   }
 }
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
   ros::init(argc, argv, "pointcloud_odom");
   pthread_mutex_init(&mutex, NULL);
@@ -2531,17 +2011,18 @@ int main(int argc, char **argv)
             << _tf_roll << ", " << _tf_pitch << ", " << _tf_yaw << ")" << std::endl;
   std::cout << "--------------------------------ndt_matching.cpp---------------------------------" << std::endl;
 
-  Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);                
+  Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);
   Eigen::AngleAxisf rot_x_btol(_tf_roll, Eigen::Vector3f::UnitX());
   Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_btol(_tf_yaw, Eigen::Vector3f::UnitZ());
   tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
 
   // Publishers
-  ndt_pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/ndt_pose", 10);
+  sub_map_pub = nh.advertise<sensor_msgs::PointCloud2>("/sub_map", 1);
+
+  ndt_pose_pub = nh.advertise<geometry_msgs::PoseStamped> > ("/ndt_pose", 10);
   natural_pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/natual_pose", 1000);
   ndt_cov_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/ndt_cov_pose", 10);
-  // current_pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/current_pose", 1000);
   localizer_pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/localizer_pose", 1000);
   estimate_twist_pub = nh.advertise<geometry_msgs::TwistStamped>("/estimate_twist", 1000);
   estimated_vel_mps_pub = nh.advertise<std_msgs::Float32>("/estimated_vel_mps", 1000);
@@ -2564,7 +2045,6 @@ int main(int argc, char **argv)
   initialpose_pub_ = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/initialpose", 1, true);
 
   // Subscribers
-  ros::Subscriber imu_sub = nh.subscribe(_imu_topic.c_str(), 10, imu_callback);
   ros::Subscriber gnss_sub = nh.subscribe("/gnss_pose", 10, gnss_callback);
   ros::Subscriber ekf_sub = nh.subscribe("/wheel_odom", 1000, wheel_odom_callback);
   ros::Subscriber map_sub = nh.subscribe("/points_map", 10, map_callback);
@@ -2572,17 +2052,18 @@ int main(int argc, char **argv)
 
   ros::Subscriber param_sub = nh.subscribe("/config/ndt", 10, param_callback);
   ros::Subscriber initialpose_sub = nh.subscribe("/initialpose", 1000, initialpose_callback);
-  ros::Subscriber lift_pose_sub = nh.subscribe("/global_waypoint_change_flag", 1000, stay_lift_localization_flagCallback);
+  ros::Subscriber lift_pose_sub =
+      nh.subscribe("/global_waypoint_change_flag", 1000, stay_lift_localization_flagCallback);
   ros::Subscriber ndt_pose_to_odom_sub = nh.subscribe("/ndt_pose_to_odom", 1000, go_lift_localization_flagCallback);
   ros::Subscriber start_flag_subscriber = nh.subscribe("/start_flag", 1, StartFlagCallback);
-  ros::Subscriber global_closest_waypoint_sub = nh.subscribe("/global_closest_waypoint", 1, globalclosestFlagCallback);  
-  ros::Subscriber manually_into_environment_sub = nh.subscribe("/manually_into_environment", 1, manuallyEnvironCallback);
+  ros::Subscriber global_closest_waypoint_sub = nh.subscribe("/global_closest_waypoint", 1, globalclosestFlagCallback);
+  ros::Subscriber manually_into_environment_sub =
+      nh.subscribe("/manually_into_environment", 1, manuallyEnvironCallback);
   ros::Subscriber lost_path_point_sub = nh.subscribe("/lost_path_point", 10, lostPathPointCallback);
 
-  ros::Subscriber fitness_score_mean_sub = nh.subscribe("fitness_score_mean", 1000, fitness_score_mean_callback);
-  ros::Subscriber fitness_score_median_sub = nh.subscribe("fitness_score_median", 1000, fitness_score_median_callback);
   ros::Subscriber use_wheel_odom_sub = nh.subscribe("/use_wheel_odom", _queue_size * 10, use_wheel_odom_callback);
-  ros::Subscriber waypoint_change_flag_subscriber = nh.subscribe("global_waypoint_change_flag", 10, waypointchangeflagCallback);
+  ros::Subscriber waypoint_change_flag_subscriber =
+      nh.subscribe("global_waypoint_change_flag", 10, waypointchangeflagCallback);
 
   ros::spin();
 

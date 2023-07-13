@@ -220,7 +220,9 @@ include_directories(
 # catkin_add_nosetests(test)
 ################################################################
 find_package(OpenCV 3)
+find_package(Sophus)
 include_directories(include ${OpenCV_INCLUDE_DIRS})
+include_directories(include ${Sophus_INCLUDE_DIRS})
 include_directories(include ${catkin_INCLUDE_DIRS})
 include_directories(include ${PCL_INCLUDE_DIRS})
 include_directories(include "include")
