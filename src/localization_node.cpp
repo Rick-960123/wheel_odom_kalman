@@ -2,17 +2,18 @@
 #include <cstddef>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <sophus/so3.hpp>
 #include <sstream>
 #include <string>
 #include <memory>
 #include <vector>
-#include <pthread.h>
 #include <eigen3/Eigen/Core>
 #include <eigen3/Eigen/Dense>
 #include <sophus/se3.hpp>
 #include <fmt/core.h>
 #include <thread>
+#include <mutex>
 
 #include <ros/ros.h>
 
@@ -78,7 +79,7 @@ static std::chrono::time_point<std::chrono::system_clock> matching_start, matchi
 static ros::Publisher current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub, sound_pub, relocal_flag_pub,
     estimate_twist_pub, cur_scan_pub, cur_keypoints_pub;
 
-pthread_mutex_t mutex;
+std::mutex mutex;
 
 struct matching_result
 {
@@ -221,7 +222,7 @@ void crop_global_map_in_FOV(Eigen::Matrix4d& pose_estimation)
 bool is_loss()
 {
   bool loss = false;
-  if (cur_scan_in_odom->width == 0 || sub_map->width == 0)
+  if (cur_keypoints_in_odom->width == 0 || sub_map->width == 0)
   {
     loss = true;
     ROS_ERROR("无效点云或地图!!!");
@@ -292,6 +293,8 @@ void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstP
 
     Eigen::Matrix4d T_odom_to_map_estimation = T_base_to_map_estimation * se3_inverse(T_base_to_odom);
     std::cout << T_odom_to_map_estimation << std::endl;
+
+    std::unique_lock<std::mutex> lock(mutex);
     if (global_localization(T_odom_to_map_estimation))
     {
       need_initial = false;
@@ -302,6 +305,7 @@ void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstP
       reset_state();
       ROS_ERROR("初始化定位失败,fitness:%lf", fitness);
     };
+    lock.unlock();
   }
   else
   {
@@ -317,8 +321,10 @@ void points_odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
 
   Eigen::Vector3d translation(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
 
+  std::unique_lock<std::mutex> lock(mutex);
   T_base_to_odom.block<3, 3>(0, 0) = quaternion.matrix();
   T_base_to_odom.block<3, 1>(0, 3) = translation;
+  lock.unlock();
 }
 
 void gnss_callback(const geometry_msgs::PoseStamped::ConstPtr& input)
@@ -334,7 +340,9 @@ void points_callback(const sensor_msgs::PointCloud2::ConstPtr& msg)
   pcl::PointCloud<pcl::PointXYZ> pcl;
   pcl::fromROSMsg(*msg, *cur_scan_in_odom);
 
+  std::unique_lock<std::mutex> lock(mutex);
   cur_keypoints_in_odom = detect_iss_keypoints(cur_scan_in_odom);
+  lock.unlock();
 
   sensor_msgs::PointCloud2 scan_msg, keyspoints_msg;
   pcl::toROSMsg(*cur_scan_in_odom, scan_msg);
@@ -363,8 +371,12 @@ void thread_fuc()
     if (map_loaded == 1 && !need_initial)
     {
       std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+      std::unique_lock<std::mutex> lock(mutex);
       global_localization(T_odom_to_map);
       is_loss();
+      lock.unlock();
+
       std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
       std::chrono::duration<double, std::milli> duration_ms = end - start;
       std::cout << "匹配消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
@@ -378,7 +390,6 @@ int main(int argc, char** argv)
 {
   setlocale(LC_CTYPE, "zh_CN.utf8");
   ros::init(argc, argv, "pointcloud_odom");
-  pthread_mutex_init(&mutex, NULL);
 
   ros::NodeHandle private_nh("~");
 

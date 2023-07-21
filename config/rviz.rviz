@@ -5,16 +5,9 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Grid1
         - /mapping1/surround1
         - /mapping1/currPoints1
         - /mapping1/currPoints1/Autocompute Value Bounds1
-        - /Odometry1/Odometry1
-        - /Odometry1/Odometry1/Shape1
-        - /Odometry1/Odometry1/Covariance1
-        - /Odometry1/Odometry1/Covariance1/Position1
-        - /Odometry1/Odometry1/Covariance1/Orientation1
-        - /Localization1
         - /Localization1/cur_keypoints_in_map1
         - /Localization1/cur_scan_in_map1
       Splitter Ratio: 0.6382352709770203
@@ -45,7 +38,7 @@ Visualization Manager:
   Class: ""
   Displays:
     - Alpha: 1
-      Cell Size: 0.20000000298023224
+      Cell Size: 1
       Class: rviz/Grid
       Color: 160; 160; 164
       Enabled: true
@@ -59,18 +52,18 @@ Visualization Manager:
         Y: 0
         Z: 0
       Plane: XY
-      Plane Cell Count: 10
-      Reference Frame: map
+      Plane Cell Count: 100
+      Reference Frame: <Fixed Frame>
       Value: true
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: false
-      Length: 0.699999988079071
+      Enabled: true
+      Length: 1
       Name: Axes
       Radius: 0.05999999865889549
       Reference Frame: <Fixed Frame>
       Show Trail: false
-      Value: false
+      Value: true
     - Class: rviz/Group
       Displays:
         - Alpha: 1
@@ -163,45 +156,6 @@ Visualization Manager:
       Name: mapping
     - Class: rviz/Group
       Displays:
-        - Angle Tolerance: 0.009999999776482582
-          Class: rviz/Odometry
-          Covariance:
-            Orientation:
-              Alpha: 0.5
-              Color: 255; 255; 127
-              Color Style: Unique
-              Frame: Local
-              Offset: 1
-              Scale: 1
-              Value: true
-            Position:
-              Alpha: 0.30000001192092896
-              Color: 204; 51; 204
-              Scale: 1
-              Value: true
-            Value: true
-          Enabled: true
-          Keep: 1
-          Name: Odometry
-          Position Tolerance: 0.0010000000474974513
-          Queue Size: 10
-          Shape:
-            Alpha: 1
-            Axes Length: 1
-            Axes Radius: 0.20000000298023224
-            Color: 255; 85; 0
-            Head Length: 0
-            Head Radius: 0
-            Shaft Length: 0.05000000074505806
-            Shaft Radius: 0.05000000074505806
-            Value: Axes
-          Topic: /Odometry
-          Unreliable: false
-          Value: true
-      Enabled: false
-      Name: Odometry
-    - Class: rviz/Group
-      Displays:
         - Alpha: 1
           Autocompute Intensity Bounds: true
           Autocompute Value Bounds:
@@ -211,7 +165,7 @@ Visualization Manager:
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 239; 41; 41
+          Color: 25; 255; 0
           Color Transformer: FlatColor
           Decay Time: 0
           Enabled: true
@@ -239,7 +193,7 @@ Visualization Manager:
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 252; 233; 79
+          Color: 237; 212; 0
           Color Transformer: FlatColor
           Decay Time: 0
           Enabled: true
@@ -267,7 +221,7 @@ Visualization Manager:
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 138; 226; 52
+          Color: 239; 41; 41
           Color Transformer: FlatColor
           Decay Time: 0
           Enabled: true
@@ -295,7 +249,7 @@ Visualization Manager:
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 255; 25; 0
+          Color: 211; 215; 207
           Color Transformer: FlatColor
           Decay Time: 0
           Enabled: true
@@ -367,15 +321,6 @@ Visualization Manager:
           Value: true
       Enabled: true
       Name: Localization
-    - Alpha: 1
-      Class: rviz/Axes
-      Enabled: true
-      Length: 0.699999988079071
-      Name: Axes
-      Radius: 0.10000000149011612
-      Reference Frame: <Fixed Frame>
-      Show Trail: false
-      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -404,7 +349,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 26.792850494384766
+      Distance: 212.5084686279297
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -412,17 +357,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -4.377194881439209
-        Y: 0.004363320767879486
-        Z: 3.360322952270508
+        X: 33.03025436401367
+        Y: 24.807355880737305
+        Z: -13.419190406799316
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.6547980308532715
+      Pitch: 0.17979837954044342
       Target Frame: body
-      Yaw: 0.7435872554779053
+      Yaw: 1.4985822439193726
     Saved: ~
 Window Geometry:
   Displays:
