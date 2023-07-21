@@ -1,0 +1,27 @@
+common:
+    lid_topic:  "/velodyne_points"
+    # imu_topic:  "/imu/data"
+    #lid_topic:  "points_raw"
+    imu_topic:  "/imu_data"
+    time_sync_en: ture         # ONLY turn on when external time synchronization is really not possible
+    
+preprocess:
+    lidar_type: 2                # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR, 
+    scan_line: 16
+    blind: 2
+
+mapping:
+    acc_cov: 0.1
+    gyr_cov: 0.1
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+    fov_degree:    180
+    det_range:     100.0
+    extrinsic_T: [-0.00108896, -0.000334191, 0.133191]    #   extrinsic_T: [ 0, 0, 0.28]
+    extrinsic_R: [0.991143, -0.132797, -0.000475842, 0.132798, 0.991143, 0.00103493, 0.000334191, -0.00108896, 0.999999]      #  extrinsic_R
+
+
+publish:     
+    scan_publish_en:  1       # 'false' will close all the point cloud output
+    dense_publish_en: 1       # false will low down the points number in a global-frame point clouds scan.
+    scan_bodyframe_pub_en: 1  # output the point cloud scans in IMU-body-frame

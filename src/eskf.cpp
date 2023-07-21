@@ -46,8 +46,8 @@ void init_eskf()
   // encoder slip model, %slip
   n.param<double>("slip_k", filter.k, 0.05);
 
-  R_i_enc = T_imu_enc.block<3, 3>(0, 0);
-  t_i_enc = T_imu_enc.block<3, 1>(0, 3);
+  R_i_enc = T_enc_to_imu.block<3, 3>(0, 0);
+  t_i_enc = T_enc_to_imu.block<3, 1>(0, 3);
 
   filter.dt = 1.0 / hz;
 
@@ -144,8 +144,8 @@ ESKF::ESKF(ros::NodeHandle& n) {
 
     n.param<double>("slip_k", filter.k, 0.05);
 
-    R_i_enc = T_imu_enc.block<3, 3>(0, 0);
-    t_i_enc = T_imu_enc.block<3, 1>(0, 3);
+    R_i_enc = T_enc_to_imu.block<3, 3>(0, 0);
+    t_i_enc = T_enc_to_imu.block<3, 1>(0, 3);
 
     double cov_prior_posi = node["covariance"]["prior"]["posi"].as<double>();
     double cov_prior_vel = node["covariance"]["prior"]["vel"].as<double>();

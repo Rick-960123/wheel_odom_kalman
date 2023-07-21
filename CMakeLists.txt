@@ -7,6 +7,35 @@ project(wheel_odom_kalman)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
+
+add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
+
+message("Current CPU archtecture: ${CMAKE_SYSTEM_PROCESSOR}")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" )
+  include(ProcessorCount)
+  ProcessorCount(N)
+  message("Processer number:  ${N}")
+  if(N GREATER 4)
+    add_definitions(-DMP_EN)
+    add_definitions(-DMP_PROC_NUM=3)
+    message("core for MP: 3")
+  elseif(N GREATER 3)
+    add_definitions(-DMP_EN)
+    add_definitions(-DMP_PROC_NUM=2)
+    message("core for MP: 2")
+  else()
+    add_definitions(-DMP_PROC_NUM=1)
+  endif()
+else()
+  add_definitions(-DMP_PROC_NUM=1)
+endif()
+
+find_package(OpenMP QUIET)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
+
+find_package(PythonLibs REQUIRED)
+find_path(MATPLOTLIB_CPP_INCLUDE_DIRS "matplotlibcpp.h")
 find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
@@ -17,11 +46,17 @@ find_package(catkin REQUIRED COMPONENTS
   tf
   geometry_msgs
   genmsg
+  pcl_ros
+  livox_ros_driver
+  message_generation
+  eigen_conversions
 )
 
 find_package(yaml-cpp REQUIRED)
-
-# find_package(PCL REQUIRED)
+find_package(PCL REQUIRED)
+find_package(OpenCV 3)
+find_package(Sophus)
+find_package(fmt)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -56,11 +91,11 @@ find_package(yaml-cpp REQUIRED)
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  Pose6D.msg
+  cloud_info.msg
+)
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -219,37 +254,13 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 ################################################################
-find_package(OpenCV 3)
-find_package(Sophus)
 include_directories(include ${OpenCV_INCLUDE_DIRS})
 include_directories(include ${Sophus_INCLUDE_DIRS})
 include_directories(include ${catkin_INCLUDE_DIRS})
 include_directories(include ${PCL_INCLUDE_DIRS})
 include_directories(include "include")
 ################################################################
- 
-# add_executable(opencv_test_node src/opencv_test_node.cpp)
-# target_link_libraries(opencv_test_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
-# add_dependencies(opencv_test_node opencv_test_gencpp)
-# add_executable(image_sub src/image_sub.cpp)
-# add_dependencies(image_sub ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-# target_link_libraries(image_sub ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
-# add_executable(opencv_test_node src/opencv_test_node.cpp)
-# add_dependencies(opencv_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-# target_link_libraries(opencv_test_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
-
-# add_executable(picture_remap src/picture_remap.cpp)
-# add_dependencies(picture_remap ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-# target_link_libraries(picture_remap ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
-
-# add_executable(camera_test src/camera_test.cpp)
-# add_dependencies(camera_test ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-# target_link_libraries(camera_test ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
-
-# add_executable(chars_pub src/chars_pub.cpp)
-# add_dependencies(chars_pub ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-# target_link_libraries(chars_pub ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # add_executable(wheel_odom_eskf src/wheel_odom_eskf.cpp)
 # add_dependencies(wheel_odom_eskf ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
@@ -259,19 +270,52 @@ add_executable(wheel_odom_ekf src/wheel_odom_ekf_100hz.cpp)
 add_dependencies(wheel_odom_ekf ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(wheel_odom_ekf ${catkin_LIBRARIES} ${OpenCV_LIBRARIES}  yaml-cpp)
 
+add_executable(localization_node src/localization_node.cpp)
+add_dependencies(localization_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(localization_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES}  yaml-cpp ${PCL_LIBRARIES} fmt::fmt)
 
-# add_executable(test_pcl src/test_pcl.cpp)
-# target_link_libraries(test_pcl ${PCL_LIBRARIES})
+add_executable(fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
+target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
+target_include_directories(fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+
+add_executable(featureExtraction src/featureExtraction.cpp)
+target_link_libraries(featureExtraction ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
+
+add_executable(imageProjection src/imageProjection.cpp)
+target_link_libraries(imageProjection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
+
+add_executable(test_pcl src/test_pcl.cpp)
+target_link_libraries(test_pcl ${PCL_LIBRARIES})
 
 install(TARGETS wheel_odom_ekf
               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
-# install(TARGETS test_pcl
-#               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(TARGETS test_pcl
+              ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+install(TARGETS fastlio_mapping
+              ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+install(TARGETS imageProjection
+              ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+install(TARGETS featureExtraction
+              ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+install(TARGETS localization_node
+              ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 install(PROGRAMS scripts/wheel_odom_ekf.py
                   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})

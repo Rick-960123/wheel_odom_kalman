@@ -578,8 +578,8 @@ int main(int argc, char** argv)
   wheel_odom_eskf::wheelbase = config[robot_id]["wheelbase"].as<double>();
   wheel_odom_eskf::wheelratio = config[robot_id]["wheelratio"].as<double>();
   std::vector<double> t_i_enc;
-  t_i_enc = config[robot_id]["T_imu_enc"].as<std::vector<double>>();
-  eskf::T_imu_enc = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(t_i_enc.data()).transpose();
+  t_i_enc = config[robot_id]["T_enc_to_imu"].as<std::vector<double>>();
+  eskf::T_enc_to_imu = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(t_i_enc.data()).transpose();
 
   ROS_INFO(
       "wheel_odom_eksf_node:: robot_id = %s wheel_radius = %f "

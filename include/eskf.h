@@ -130,7 +130,7 @@ private:
     static int encoder_ticks_per_rev = 1000;
     static double wheelbase = 0.5;
     static double wheelratio = 0.95;
-    static Eigen::Matrix4d T_imu_enc;
+    static Eigen::Matrix4d T_enc_to_imu;
 
     // data storage elements
     Eigen::Vector3d sum_accel;
@@ -193,4 +193,4 @@ public:
     void GetFGY(TypeMatrixF& F,TypeMatrixG& G, TypeVectorY & Y);
 };
 
-#endif //GPS_IMU_FUSION_ESKF_H
+#endif
