@@ -3,20 +3,26 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
-#include <sophus/so3.hpp>
 #include <sstream>
 #include <string>
 #include <memory>
 #include <vector>
-#include <eigen3/Eigen/Core>
-#include <eigen3/Eigen/Dense>
-#include <sophus/se3.hpp>
-#include <fmt/core.h>
 #include <thread>
 #include <mutex>
 #include <deque>
+#include <unistd.h>
+#include <stdlib.h>
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fmt/core.h>
 
 #include <ros/ros.h>
+
+#include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Dense>
+#include <sophus/se3.hpp>
+#include <sophus/so3.hpp>
 
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/Odometry.h>
@@ -59,6 +65,9 @@ static bool need_initial = true;
 static bool use_ndt = true;
 static bool use_wheel_odom_flag = false;
 static bool exit_initial_thread = false;
+static std::string current_map_name = "";
+static std::string status_file_dir = "/home/justin/.zr_loc_status/";
+static std::string map_file_dir = "/home/justin/map/";
 
 Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom,
     T_base_to_lidar, T_imu_to_lidar;
@@ -78,8 +87,9 @@ static ros::Time cur_scan_stamp, points_odom_stamp, wheel_odom_stamp;
 static ros::Time pre_scan_time;
 static ros::Duration scan_duration;
 
-static ros::Publisher current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub, reset_wheel_odom_pub,
-    reset_odom_pub, sound_pub, relocal_flag_pub, estimate_twist_pub, cur_scan_pub, cur_keypoints_pub, keyframes_pcl_pub;
+static ros::Publisher points_map_pub, current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub,
+    reset_wheel_odom_pub, reset_odom_pub, sound_pub, relocal_flag_pub, estimate_twist_pub, cur_scan_pub,
+    cur_keypoints_pub, keyframes_pcl_pub;
 
 struct keyframe
 {
@@ -207,6 +217,18 @@ void pub_topic()
   keyframes_pcl_pub.publish(keyframes_pcl_msg);
 }
 
+void pub_map(const ros::TimerEvent& evt)
+{
+  if (map_loaded && points_map_pub.getNumSubscribers() > 0)
+  {
+    sensor_msgs::PointCloud2 map_msg;
+    pcl::toROSMsg(*global_map, map_msg);
+    map_msg.header.frame_id = "map";
+    map_msg.header.stamp = ros::Time::now();
+    points_map_pub.publish(map_msg);
+  }
+}
+
 void reset_state()
 {
   need_initial = true;
@@ -218,23 +240,34 @@ void reset_state()
   ROS_INFO("已初始化状态变量");
 }
 
-void map_callback(const sensor_msgs::PointCloud2::ConstPtr& msg_ptr)
+void map_callback(const std_msgs::String::Ptr& msg_ptr)
 {
-  if (msg_ptr->width > 0)
+  if (current_map_name == msg_ptr->data)
   {
-    if (map_loaded)
-    {
-      return;
-    }
-    pcl::fromROSMsg(*msg_ptr, *global_map);
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex);
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>(map_file_dir + msg_ptr->data, *global_map) == -1)
+  {
+    ROS_ERROR("地图加载失败，无效的路径!!!");
+    return;
+  }
+  if (global_map->width > 0)
+  {
     global_map = voxel_down_sample(global_map, map_voxel_size);
     crop_filter.setInputCloud(global_map);
+    current_map_name = msg_ptr->data;
+    std::ofstream ofs;
+    ofs.open(status_file_dir + "current_map_name", std::ios::out);
+    ofs << current_map_name << std::endl;
+    ofs.close();
     map_loaded = 1;
     ROS_INFO("地图加载成功!");
   }
   else
   {
-    ROS_ERROR("无效的地图!!!");
+    ROS_ERROR("地图加载失败，无效的地图!!!");
   }
 }
 
@@ -325,7 +358,7 @@ bool global_localization(Eigen::Matrix4d& pose_estimation)
   else
   {
     loss_cnt += 1;
-    ROS_INFO(fmt::format("点云匹配失败, loss_cnt: {}, fitness: {}", loss_cnt, fitness).c_str());
+    ROS_INFO("点云匹配失败, loss_cnt: %d, fitness: %lf", loss_cnt, fitness);
     return false;
   }
 }
@@ -555,6 +588,57 @@ void use_wheel_odom_callback(const std_msgs::BoolConstPtr& msg_ptr)
   }
 }
 
+void check_status()
+{
+  if (access(status_file_dir.c_str(), 0))
+  {
+    mkdir(status_file_dir.c_str(), S_IRWXU);
+    return;
+  }
+
+  std::ifstream ifs;
+  ifs.open(status_file_dir + "current_map_name", std::ios::out);
+  if (ifs.is_open())
+  {
+    std_msgs::String::Ptr map_name_ptr(new std_msgs::String());
+    getline(ifs, map_name_ptr->data);
+    ifs.close();
+    map_callback(map_name_ptr);
+  }
+
+  ifs.open(status_file_dir + "initialpose", std::ios::out);
+  if (ifs.is_open())
+  {
+    std::string s_content, content[7];
+    getline(ifs, s_content);
+    ifs.close();
+
+    int s = 0;
+    for (int i = 0; i < s_content.length(); i++)
+    {
+      if (s_content[i] == ' ')
+      {
+        s++;
+        continue;
+      }
+      content[s] += s_content[i];
+    }
+
+    geometry_msgs::PoseWithCovarianceStamped::Ptr initialpose_ptr(new geometry_msgs::PoseWithCovarianceStamped());
+    initialpose_ptr->header.frame_id = "map";
+    initialpose_ptr->header.stamp = ros::Time::now();
+
+    initialpose_ptr->pose.pose.position.x = std::stod(content[0]);
+    initialpose_ptr->pose.pose.position.y = std::stod(content[1]);
+    initialpose_ptr->pose.pose.position.z = std::stod(content[2]);
+    initialpose_ptr->pose.pose.orientation.x = std::stod(content[3]);
+    initialpose_ptr->pose.pose.orientation.y = std::stod(content[4]);
+    initialpose_ptr->pose.pose.orientation.z = std::stod(content[5]);
+    initialpose_ptr->pose.pose.orientation.w = std::stod(content[6]);
+    initialpose_callback(initialpose_ptr);
+  }
+}
+
 void thread_fuc()
 {
   ROS_INFO("定位子线程已开启");
@@ -611,6 +695,7 @@ int main(int argc, char** argv)
   private_nh.param<bool>("/use_ndt", use_ndt, false);
 
   // Publishers
+  points_map_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/points_map", 10);
   sub_map_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/sub_map", 1);
   keyframes_pcl_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/keyframes_pcl", 1);
   cur_scan_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/cur_scan_in_map", 1);
@@ -626,7 +711,7 @@ int main(int argc, char** argv)
 
   // Subscribers
   ros::Subscriber initialpose_sub = private_nh.subscribe("/initialpose", 1000, initialpose_callback);
-  ros::Subscriber map_sub = private_nh.subscribe("/points_map", 10, map_callback);
+  ros::Subscriber set_map_sub = private_nh.subscribe("/set_map", 10, map_callback);
   ros::Subscriber points_sub = private_nh.subscribe("/cloud_registered", 10, points_callback);
 
   ros::Subscriber gnss_sub = private_nh.subscribe("/gnss_pose", 10, gnss_callback);
@@ -638,6 +723,8 @@ int main(int argc, char** argv)
       private_nh.subscribe("global_waypoint_change_flag", 10, waypointchangeflagCallback);
 
   reset_state();
+  check_status();
+  ros::Timer timer = private_nh.createTimer(ros::Duration(5), pub_map);
   main_thread = std::thread(thread_fuc);
   ros::spin();
   main_thread.join();
