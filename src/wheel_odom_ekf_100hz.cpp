@@ -88,7 +88,7 @@ static bool emergency_button_pressed_flag = false;
 static int waypoint_change_flag = 0;
 static bool lift_change_flag = true;
 static bool use_encoder_initialized = true;
-static bool use_wheel_odom_lift_flag = false;
+static bool use_wheel_odom_flag = false;
 static bool initialized_flag = false;
 
 #define fitness_above_threshold_indoor 0.5
@@ -217,22 +217,24 @@ void init_state(double& x, double& y, double& z, double& roll, double& pitch, do
   first_imu_twist_msg = true;
   initialized_flag = true;
 
+  encoder_iteration_num = 0;
   ROS_INFO("wheel_odom_ekf_node::init_state x = %f y = %f z = %f v_x = %f v_y = %f yaw = %f", state[0], state[1],
            state[2], state[3], pitch, state[4]);
 }
 
 void use_wheel_odom_callback(const std_msgs::BoolConstPtr& msg)
 {
-  use_wheel_odom_lift_flag = msg->data;
+  use_wheel_odom_flag = msg->data;
   TransNum = 500;
-  ROS_INFO("use_wheel_odom_lift_flag = %d ", use_wheel_odom_lift_flag);
+  ROS_INFO("use_wheel_odom_flag = %d ", use_wheel_odom_flag);
 }
 
 void ResetCallback(const std_msgs::Bool::ConstPtr& msg)
 {
   if (msg->data)
   {
-    encoder_iteration_num = TransNum + 10;
+    double x,y,z,roll,pitch,yaw = 0.0;
+    wheel_odom_ekf::init_state(x,y,z,roll,pitch,yaw );
   }
 }
 
@@ -249,7 +251,7 @@ void waypointflagCallback(const std_msgs::Int32::ConstPtr& msg)
     fitness_above_threshold = fitness_above_threshold_outdoor;
   }
 
-  if ((waypoint_change_flag == 5 || use_wheel_odom_lift_flag) && use_encoder_initialized)
+  if ((waypoint_change_flag == 5 || use_wheel_odom_flag) && use_encoder_initialized)
   {
     PERIOD = ENCODER_TransNum;
     if (fitness_score < 3.0)
@@ -258,8 +260,7 @@ void waypointflagCallback(const std_msgs::Int32::ConstPtr& msg)
     }
     use_encoder_initialized = false;
     lift_change_flag = true;
-    encoder_iteration_num = 0;
-    use_wheel_odom_lift_flag = false;
+    use_wheel_odom_flag = false;
 
     std_msgs::Int32 msg;
     msg.data = 1;
@@ -390,28 +391,13 @@ void StartWheelOdomCallback(const std_msgs::Int32ConstPtr& msg)
 
 void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& input)
 {
-  tf::TransformListener listener;
-  tf::StampedTransform transform;
-  try
-  {
-    ros::Time now = ros::Time(0);
-    listener.waitForTransform("map", input->header.frame_id, now, ros::Duration(10.0));
-    listener.lookupTransform("map", input->header.frame_id, now, transform);
-  }
-  catch (tf::TransformException& ex)
-  {
-    // ROS_ERROR("%s", ex.what());
-  }
-
   tf::Quaternion q(input->pose.pose.orientation.x, input->pose.pose.orientation.y, input->pose.pose.orientation.z,
                    input->pose.pose.orientation.w);
   tf::Matrix3x3 m(q);
 
-  // Justin 从rviz手动给出的pose是基于world坐标系的，所以需要将其转换到map坐标系
-  double x = input->pose.pose.position.x + transform.getOrigin().x();
-  double y = input->pose.pose.position.y + transform.getOrigin().y();
-  double z = input->pose.pose.position.z + transform.getOrigin().z();
-
+  double x = input->pose.pose.position.x;
+  double y = input->pose.pose.position.y;
+  double z = input->pose.pose.position.z;
   double roll, pitch, yaw;
   m.getRPY(roll, pitch, yaw);
   wheel_odom_ekf::init_state(x, y, z, roll, pitch, yaw);
@@ -469,7 +455,6 @@ void EKFPoseCallback(const geometry_msgs::PoseStampedPtr& pose)
       encoder_iteration_num >= PERIOD)
   {
     wheel_odom_ekf::init_state(ekf_pose_x, ekf_pose_y, ekf_pose_z, ekf_pose_roll, ekf_pose_pitch, ekf_pose_yaw);
-    encoder_iteration_num = 0;
   }
 
   previous_pose_x = ekf_pose_x;
@@ -533,7 +518,7 @@ void ekf_meaturement(const double& v, const double& w, const double& dt)
   Eigen::MatrixXd E = Eigen::Matrix<double, 5, 5>::Identity();
   P = (E - K * H.transpose()) * P;
 
-  current_angular_z = (state[4] - last_encoder_state[4])/dt;
+  current_angular_z = (state[4] - last_encoder_state[4]) / dt;
   last_encoder_state = state;
   last_encoder_w = w;
 
@@ -703,7 +688,7 @@ int main(int argc, char** argv)
   ros::Subscriber sub_imu = nh.subscribe(imu_topic, 10, wheel_odom_ekf::imu_callback);
   ros::Subscriber sub = nh.subscribe("/motor_info", 10, wheel_odom_ekf::encoders_callback);
 
-  ros::Subscriber sub_initalpose = nh.subscribe("/initialpose", 10, wheel_odom_ekf::initialpose_callback);
+  // ros::Subscriber sub_initalpose = nh.subscribe("/initialpose", 10, wheel_odom_ekf::initialpose_callback);
   ros::Subscriber sub_pose1 = nh.subscribe("/ekf_pose", 10, wheel_odom_ekf::EKFPoseCallback);
   ros::Subscriber sub_liftpose = nh.subscribe("/liftpose", 100, wheel_odom_ekf::liftpose_callback);
 

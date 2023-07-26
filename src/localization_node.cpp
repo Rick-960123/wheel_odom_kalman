@@ -14,6 +14,7 @@
 #include <fmt/core.h>
 #include <thread>
 #include <mutex>
+#include <deque>
 
 #include <ros/ros.h>
 
@@ -50,36 +51,62 @@
 #define PI (3.1415926)
 static int map_loaded = 0;
 static int loss_cnt = 0;
+static int waypoint_change_flag;
 static double fitness_score_threshold;
 static double fitness, map_voxel_size, scan_voxel_size, sub_map_size;
 
 static bool need_initial = true;
 static bool use_ndt = true;
+static bool use_wheel_odom_flag = false;
+static bool exit_initial_thread = false;
 
-Eigen::Matrix4d T_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_lidar, T_imu_to_lidar;
+Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom,
+    T_base_to_lidar, T_imu_to_lidar;
 pcl::PointCloud<pcl::PointXYZ>::Ptr global_map(new pcl::PointCloud<pcl::PointXYZ>),
-    sub_map(new pcl::PointCloud<pcl::PointXYZ>), cur_scan_in_odom(new pcl::PointCloud<pcl::PointXYZ>),
-    cur_keypoints_in_odom(new pcl::PointCloud<pcl::PointXYZ>);
+    sub_map(new pcl::PointCloud<pcl::PointXYZ>), keyframes_pcl(new pcl::PointCloud<pcl::PointXYZ>),
+    cur_scan_in_odom(new pcl::PointCloud<pcl::PointXYZ>), cur_keypoints_in_odom(new pcl::PointCloud<pcl::PointXYZ>);
 
 static pcl::CropBox<pcl::PointXYZ> crop_filter;
 static pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
 static pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
 static pcl::VoxelGrid<pcl::PointXYZ> vox_filter;
 
-static nav_msgs::Odometry cur_pcl_odom;
 static geometry_msgs::PoseStamped current_pose;
 static geometry_msgs::PoseWithCovarianceStamped ndt_cov_msg;
 
-static ros::Time current_scan_time;
-static ros::Time previous_scan_time;
+static ros::Time cur_scan_stamp, points_odom_stamp, wheel_odom_stamp;
+static ros::Time pre_scan_time;
 static ros::Duration scan_duration;
 
-static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
+static ros::Publisher current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub, reset_wheel_odom_pub,
+    reset_odom_pub, sound_pub, relocal_flag_pub, estimate_twist_pub, cur_scan_pub, cur_keypoints_pub, keyframes_pcl_pub;
 
-static ros::Publisher current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub, sound_pub, relocal_flag_pub,
-    estimate_twist_pub, cur_scan_pub, cur_keypoints_pub;
+struct keyframe
+{
+  keyframe() : feature_points_ptr(new pcl::PointCloud<pcl::PointXYZ>()){};
+  ros::Time timestamp;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr feature_points_ptr;
+  Eigen::Matrix4d pose_in_odom;
+  Eigen::Matrix4d pose_in_map;
 
-std::mutex mutex;
+  double diff_stamp(const keyframe& other)
+  {
+    return abs((timestamp - other.timestamp).toSec());
+  }
+  double diff_pose(const keyframe& other)
+  {
+    return pow((pow(pose_in_odom(0, 3) - other.pose_in_odom(0, 3), 2) +
+                pow(pose_in_odom(1, 3) - other.pose_in_odom(1, 3), 2) +
+                pow(pose_in_odom(2, 3) - other.pose_in_odom(2, 3), 2)),
+               0.5);
+  }
+  double diff_yaw(const keyframe& other)
+  {
+    Eigen::Vector3d eulerAngle = pose_in_odom.block<3, 3>(0, 0).eulerAngles(2, 1, 0);
+    Eigen::Vector3d other_eulerAngle = other.pose_in_odom.block<3, 3>(0, 0).eulerAngles(2, 1, 0);
+    return abs(eulerAngle(2) - other_eulerAngle(2));
+  }
+};
 
 struct matching_result
 {
@@ -88,6 +115,11 @@ struct matching_result
   double fitness;
   matching_result() : pcl_ptr(new pcl::PointCloud<pcl::PointXYZ>()){};
 };
+
+static std::deque<keyframe> keyframes;
+static std::mutex mutex;
+static std::thread main_thread, initial_thread;
+static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr voxel_down_sample(pcl::PointCloud<pcl::PointXYZ>::Ptr& pcd,
                                                       const double& voxel_size)
@@ -106,11 +138,13 @@ Eigen::Matrix4d se3_inverse(const Eigen::Matrix4d& T)
   return T_inverse.matrix();
 }
 
-void pub_pose()
+void pub_topic()
 {
+  auto cur_time = ros::Time::now();
   static tf::TransformBroadcaster br;
   Eigen::Quaterniond q;
   q = Eigen::Quaterniond(T_odom_to_map.block<3, 3>(0, 0));
+  q.normalize();
 
   tf::Transform transform;
   tf::Quaternion qua;
@@ -120,13 +154,22 @@ void pub_pose()
   qua.setY(q.y());
   qua.setZ(q.z());
   transform.setRotation(qua);
-  br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "camera_init"));
+  br.sendTransform(tf::StampedTransform(transform, cur_time, "map", "camera_init"));
 
-  T_base_to_map = T_odom_to_map * T_base_to_odom;
+  if (use_wheel_odom_flag)
+  {
+    T_base_to_map = T_wheel_odom_to_map * T_base_to_wheel_odom;
+  }
+  else
+  {
+    T_base_to_map = T_odom_to_map * T_base_to_odom;
+  }
+
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
+  q_.normalize();
   current_pose.header.frame_id = "map";
-  current_pose.header.stamp = ros::Time::now();
+  current_pose.header.stamp = cur_time;
 
   current_pose.pose.orientation.x = q_.x();
   current_pose.pose.orientation.y = q_.y();
@@ -136,6 +179,32 @@ void pub_pose()
   current_pose.pose.position.y = T_base_to_map(1, 3);
   current_pose.pose.position.z = T_base_to_map(2, 3);
   current_pose_pub.publish(current_pose);
+
+  std_msgs::Float32 fitness_msg;
+  fitness_msg.data = fitness;
+  fitness_pub.publish(fitness_msg);
+
+  geometry_msgs::TwistStamped twist_msg;
+  twist_msg.header.stamp = cur_time;
+  twist_msg.header.frame_id = "base_link";
+  twist_msg.twist.linear.x = 0.0;
+  twist_msg.twist.angular.z = 0.0;
+  estimate_twist_pub.publish(twist_msg);
+
+  sensor_msgs::PointCloud2 scan_msg, keyspoints_msg, keyframes_pcl_msg;
+
+  pcl::toROSMsg(*cur_scan_in_odom, scan_msg);
+  scan_msg.header.frame_id = "camera_init";
+  scan_msg.header.stamp = cur_time;
+  cur_scan_pub.publish(scan_msg);
+
+  pcl::toROSMsg(*cur_keypoints_in_odom, keyspoints_msg);
+  keyspoints_msg.header = scan_msg.header;
+  cur_keypoints_pub.publish(keyspoints_msg);
+
+  pcl::toROSMsg(*keyframes_pcl, keyframes_pcl_msg);
+  keyframes_pcl_msg.header = scan_msg.header;
+  keyframes_pcl_pub.publish(keyframes_pcl_msg);
 }
 
 void reset_state()
@@ -149,15 +218,15 @@ void reset_state()
   ROS_INFO("已初始化状态变量");
 }
 
-void map_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
+void map_callback(const sensor_msgs::PointCloud2::ConstPtr& msg_ptr)
 {
-  if (input->width > 0)
+  if (msg_ptr->width > 0)
   {
     if (map_loaded)
     {
       return;
     }
-    pcl::fromROSMsg(*input, *global_map);
+    pcl::fromROSMsg(*msg_ptr, *global_map);
     global_map = voxel_down_sample(global_map, map_voxel_size);
     crop_filter.setInputCloud(global_map);
     map_loaded = 1;
@@ -177,7 +246,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_sc
   if (use_ndt)
   {
     ndt.setResolution(1.0 * scale);
-    ndt.setMaximumIterations(50);
+    ndt.setMaximumIterations(30);
     ndt.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     ndt.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
     ndt.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -188,7 +257,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_sc
   {
     icp.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     icp.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
-    icp.setMaximumIterations(50);
+    icp.setMaximumIterations(30);
     icp.setTransformationEpsilon(1e-8);
     icp.setEuclideanFitnessEpsilon(0.001);
     icp.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -214,7 +283,6 @@ void crop_global_map_in_FOV(Eigen::Matrix4d& pose_estimation)
   sensor_msgs::PointCloud2 sub_map_msg;
   pcl::toROSMsg(*sub_map, sub_map_msg);
   sub_map_msg.header.stamp = ros::Time::now();
-  ;
   sub_map_msg.header.frame_id = "map";
   sub_map_pub.publish(sub_map_msg);
 }
@@ -279,33 +347,138 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr detect_iss_keypoints(pcl::PointCloud<pcl::Po
   return iss_keypoints;
 }
 
-void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& input)
+void reset_odom(const std::string& odom_type)
+{
+  std_msgs::Bool reset_msg;
+  reset_msg.data = true;
+  if (odom_type == "wheel_odom")
+  {
+    reset_wheel_odom_pub.publish(reset_msg);
+  }
+  else if (odom_type == "points_odom")
+  {
+    reset_odom_pub.publish(reset_msg);
+  }
+  else if (odom_type == "all")
+  {
+    reset_odom_pub.publish(reset_msg);
+    reset_wheel_odom_pub.publish(reset_msg);
+  }
+}
+
+void init_function(const Eigen::Matrix4d& T_base_to_map_estimation, const std::string& init_odom)
+{
+  ROS_INFO("初始化子线程已开启");
+  auto cur_stamp = ros::Time::now();
+
+  while (ros::ok())
+  {
+    if (init_odom == "points_odom" && points_odom_stamp > cur_stamp && cur_scan_stamp > cur_stamp)
+    {
+      ROS_INFO("已收到points_odom重置后最新帧");
+      break;
+    }
+    else if (init_odom == "wheel_odom" && wheel_odom_stamp > cur_stamp)
+    {
+      ROS_INFO("已收到wheel_odom重置后最新帧");
+      break;
+    }
+    else if (init_odom == "all" && wheel_odom_stamp > cur_stamp && points_odom_stamp > cur_stamp &&
+             cur_scan_stamp > cur_stamp)
+    {
+      ROS_INFO("已收到all_odom重置后最新帧");
+      break;
+    }
+    if (exit_initial_thread)
+    {
+      ROS_INFO("初始化子线程已退出");
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  Eigen::Matrix4d T_odom_to_map_estimation = T_base_to_map_estimation * se3_inverse(T_base_to_odom);
+
+  std::unique_lock<std::mutex> lock(mutex);
+  if (global_localization(T_odom_to_map_estimation))
+  {
+    need_initial = false;
+    T_wheel_odom_to_map = T_odom_to_map;
+    ROS_INFO("初始化定位成功,fitness:%lf", fitness);
+  }
+  else
+  {
+    reset_state();
+    ROS_ERROR("初始化定位失败,fitness:%lf", fitness);
+  };
+  lock.unlock();
+  ROS_INFO("初始化子线程已退出");
+}
+
+void add_keyframe()
+{
+  keyframe kf;
+  kf.timestamp = cur_scan_stamp;
+  kf.pose_in_odom = T_base_to_odom;
+  kf.feature_points_ptr = cur_keypoints_in_odom;
+
+  if (keyframes.size() < 10)
+  {
+    keyframes.push_back(kf);
+  }
+  else
+  {
+    auto pre_keyframe = keyframes.back();
+    if (kf.diff_yaw(pre_keyframe) > 0.8)
+    {
+      keyframes.pop_front();
+      keyframes.push_back(kf);
+    }
+    else if (kf.diff_pose(pre_keyframe) > 1)
+    {
+      keyframes.pop_front();
+      keyframes.push_back(kf);
+    }
+    else if (kf.diff_stamp(pre_keyframe) > 30)
+    {
+      keyframes.pop_front();
+      keyframes.push_back(kf);
+    }
+  }
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr temp_map(new pcl::PointCloud<pcl::PointXYZ>);
+  for (auto& kf : keyframes)
+  {
+    Eigen::Matrix4d trans = T_base_to_odom * se3_inverse(kf.pose_in_odom);
+    pcl::PointCloud<pcl::PointXYZ> trans_cloud;
+    pcl::transformPointCloud(*kf.feature_points_ptr, trans_cloud, trans);
+    *temp_map += trans_cloud;
+  }
+  keyframes_pcl = temp_map;
+}
+
+void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg_ptr)
 {
   if (map_loaded == 1)
   {
-    Eigen::Quaterniond quaternion(input->pose.pose.orientation.w, input->pose.pose.orientation.x,
-                                  input->pose.pose.orientation.y, input->pose.pose.orientation.z);
-    Eigen::Vector3d translation(input->pose.pose.position.x, input->pose.pose.position.y, input->pose.pose.position.z);
+    reset_odom("all");
+
+    Eigen::Quaterniond quaternion(msg_ptr->pose.pose.orientation.w, msg_ptr->pose.pose.orientation.x,
+                                  msg_ptr->pose.pose.orientation.y, msg_ptr->pose.pose.orientation.z);
+    Eigen::Vector3d translation(msg_ptr->pose.pose.position.x, msg_ptr->pose.pose.position.y,
+                                msg_ptr->pose.pose.position.z);
 
     Eigen::Matrix4d T_base_to_map_estimation = Eigen::Matrix4d::Identity();
     T_base_to_map_estimation.block<3, 3>(0, 0) = quaternion.matrix();
     T_base_to_map_estimation.block<3, 1>(0, 3) = translation;
 
-    Eigen::Matrix4d T_odom_to_map_estimation = T_base_to_map_estimation * se3_inverse(T_base_to_odom);
-    std::cout << T_odom_to_map_estimation << std::endl;
-
-    std::unique_lock<std::mutex> lock(mutex);
-    if (global_localization(T_odom_to_map_estimation))
+    if (initial_thread.joinable())
     {
-      need_initial = false;
-      ROS_INFO("初始化定位成功,fitness:%lf", fitness);
+      exit_initial_thread = true;
+      initial_thread.join();
+      exit_initial_thread = false;
     }
-    else
-    {
-      reset_state();
-      ROS_ERROR("初始化定位失败,fitness:%lf", fitness);
-    };
-    lock.unlock();
+    initial_thread = std::thread(init_function, T_base_to_map_estimation, "points_odom");
   }
   else
   {
@@ -313,77 +486,104 @@ void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstP
   }
 }
 
-void points_odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
+void points_odom_callback(const nav_msgs::Odometry::ConstPtr& msg_ptr)
 {
-  cur_pcl_odom = *msg;
-  Eigen::Quaterniond quaternion(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x,
-                                msg->pose.pose.orientation.y, msg->pose.pose.orientation.z);
-
-  Eigen::Vector3d translation(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
+  Eigen::Quaterniond quaternion(msg_ptr->pose.pose.orientation.w, msg_ptr->pose.pose.orientation.x,
+                                msg_ptr->pose.pose.orientation.y, msg_ptr->pose.pose.orientation.z);
+  Eigen::Vector3d translation(msg_ptr->pose.pose.position.x, msg_ptr->pose.pose.position.y,
+                              msg_ptr->pose.pose.position.z);
 
   std::unique_lock<std::mutex> lock(mutex);
+  points_odom_stamp = ros::Time::now();
   T_base_to_odom.block<3, 3>(0, 0) = quaternion.matrix();
   T_base_to_odom.block<3, 1>(0, 3) = translation;
   lock.unlock();
 }
 
-void gnss_callback(const geometry_msgs::PoseStamped::ConstPtr& input)
+void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr& msg_ptr)
 {
-}
+  Eigen::Quaterniond quaternion(msg_ptr->pose.pose.orientation.w, msg_ptr->pose.pose.orientation.x,
+                                msg_ptr->pose.pose.orientation.y, msg_ptr->pose.pose.orientation.z);
 
-void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
-{
-}
-
-void points_callback(const sensor_msgs::PointCloud2::ConstPtr& msg)
-{
-  pcl::PointCloud<pcl::PointXYZ> pcl;
-  pcl::fromROSMsg(*msg, *cur_scan_in_odom);
+  Eigen::Vector3d translation(msg_ptr->pose.pose.position.x, msg_ptr->pose.pose.position.y,
+                              msg_ptr->pose.pose.position.z);
 
   std::unique_lock<std::mutex> lock(mutex);
-  cur_keypoints_in_odom = detect_iss_keypoints(cur_scan_in_odom);
+  wheel_odom_stamp = ros::Time::now();
+  T_base_to_wheel_odom.block<3, 3>(0, 0) = quaternion.matrix();
+  T_base_to_wheel_odom.block<3, 1>(0, 3) = translation;
   lock.unlock();
-
-  sensor_msgs::PointCloud2 scan_msg, keyspoints_msg;
-  pcl::toROSMsg(*cur_scan_in_odom, scan_msg);
-  pcl::toROSMsg(*cur_keypoints_in_odom, keyspoints_msg);
-  scan_msg.header = msg->header;
-  scan_msg.header.frame_id = "camera_init";
-  scan_msg.header.stamp = ros::Time::now();
-  keyspoints_msg.header = scan_msg.header;
-  cur_scan_pub.publish(scan_msg);
-  cur_keypoints_pub.publish(keyspoints_msg);
 }
 
-static std::string matrixToString(const Eigen::MatrixXd& mat)
+void points_callback(const sensor_msgs::PointCloud2::ConstPtr& msg_ptr)
 {
-  std::stringstream ss;
-  ss << mat;
-  return ss.str();
+  pcl::fromROSMsg(*msg_ptr, *cur_scan_in_odom);
+
+  std::unique_lock<std::mutex> lock(mutex);
+  cur_scan_stamp = ros::Time::now();
+  cur_keypoints_in_odom = detect_iss_keypoints(cur_scan_in_odom);
+  lock.unlock();
+}
+
+void gnss_callback(const geometry_msgs::PoseStamped::ConstPtr& msg_ptr)
+{
+}
+
+void waypointchangeflagCallback(const std_msgs::Int32::ConstPtr& msg_ptr)
+{
+  waypoint_change_flag = msg_ptr->data;
+}
+
+void use_wheel_odom_callback(const std_msgs::BoolConstPtr& msg_ptr)
+{
+  use_wheel_odom_flag = msg_ptr->data;
+  if (use_wheel_odom_flag)
+  {
+    reset_odom("wheel_odom");
+    T_wheel_odom_to_map = T_base_to_map;
+  }
+  else
+  {
+    reset_odom("points_odom");
+    if (initial_thread.joinable())
+    {
+      exit_initial_thread = true;
+      initial_thread.join();
+      exit_initial_thread = false;
+    }
+    initial_thread = std::thread(init_function, T_base_to_map, "points_odom");
+  }
 }
 
 void thread_fuc()
 {
-  ROS_INFO("子线程已开启");
+  ROS_INFO("定位子线程已开启");
   ros::Rate rate(20);
   while (ros::ok())
   {
-    if (map_loaded == 1 && !need_initial)
+    // std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+    double diff = (cur_scan_stamp - points_odom_stamp).toSec();
+
+    if (0.05 > diff && diff > -0.05)
     {
-      std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-
       std::unique_lock<std::mutex> lock(mutex);
-      global_localization(T_odom_to_map);
-      is_loss();
+      add_keyframe();
+      if (map_loaded == 1 && !need_initial)
+      {
+        global_localization(T_odom_to_map);
+        is_loss();
+      }
+      pub_topic();
       lock.unlock();
-
-      std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-      std::chrono::duration<double, std::milli> duration_ms = end - start;
-      std::cout << "匹配消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
     }
-    pub_pose();
+    // std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    // std::chrono::duration<double, std::milli> duration_ms = end - start;
+    // std::cout << "匹配消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
+
     rate.sleep();
   }
+  ROS_INFO("定位子线程已退出");
 }
 
 int main(int argc, char** argv)
@@ -412,6 +612,7 @@ int main(int argc, char** argv)
 
   // Publishers
   sub_map_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/sub_map", 1);
+  keyframes_pcl_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/keyframes_pcl", 1);
   cur_scan_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/cur_scan_in_map", 1);
   cur_keypoints_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/cur_keypoints_in_map", 1);
   current_pose_pub = private_nh.advertise<geometry_msgs::PoseStamped>("/current_pose", 10);
@@ -419,7 +620,9 @@ int main(int argc, char** argv)
 
   estimate_twist_pub = private_nh.advertise<geometry_msgs::TwistStamped>("/estimate_twist", 1000);
   fitness_pub = private_nh.advertise<std_msgs::Float32>("/fitness_score", 100);
-  sound_pub = private_nh.advertise<std_msgs::String>("/sound_player", 10, true);
+  sound_pub = private_nh.advertise<std_msgs::String>("/sound_player", 10);
+  reset_odom_pub = private_nh.advertise<std_msgs::Bool>("/reset_odom", 10);
+  reset_wheel_odom_pub = private_nh.advertise<std_msgs::Bool>("/reset_wheel_odom", 10);
 
   // Subscribers
   ros::Subscriber initialpose_sub = private_nh.subscribe("/initialpose", 1000, initialpose_callback);
@@ -430,10 +633,13 @@ int main(int argc, char** argv)
   ros::Subscriber pcl_odom_sub = private_nh.subscribe("/Odometry", 1000, points_odom_callback);
   ros::Subscriber wheel_odom_sub = private_nh.subscribe("/wheel_odom", 1000, wheel_odom_callback);
 
-  reset_state();
+  ros::Subscriber use_wheel_odom_sub = private_nh.subscribe("/use_wheel_odom", 10, use_wheel_odom_callback);
+  ros::Subscriber waypoint_change_flag_subscriber =
+      private_nh.subscribe("global_waypoint_change_flag", 10, waypointchangeflagCallback);
 
-  std::thread thread1(thread_fuc);
+  reset_state();
+  main_thread = std::thread(thread_fuc);
   ros::spin();
-  thread1.join();
+  main_thread.join();
   return 0;
 }
