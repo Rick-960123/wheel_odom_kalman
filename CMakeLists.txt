@@ -287,12 +287,20 @@ target_link_libraries(imageProjection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${
 add_executable(test_pcl src/test_pcl.cpp)
 target_link_libraries(test_pcl ${PCL_LIBRARIES})
 
+add_executable(merge_map src/merge_map.cpp)
+target_link_libraries(merge_map ${PCL_LIBRARIES})
+
 install(TARGETS wheel_odom_ekf
               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 install(TARGETS test_pcl
+              ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+              RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+install(TARGETS merge_map
               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
