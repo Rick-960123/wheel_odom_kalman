@@ -274,15 +274,15 @@ add_executable(localization_node src/localization_node.cpp)
 add_dependencies(localization_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(localization_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES}  yaml-cpp ${PCL_LIBRARIES} fmt::fmt)
 
-add_executable(fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
-target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
-target_include_directories(fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+add_executable(zr_fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
+target_link_libraries(zr_fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
+target_include_directories(zr_fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
 
-add_executable(featureExtraction src/featureExtraction.cpp)
-target_link_libraries(featureExtraction ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
+add_executable(zr_featureExtraction src/featureExtraction.cpp)
+target_link_libraries(zr_featureExtraction ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
 
-add_executable(imageProjection src/imageProjection.cpp)
-target_link_libraries(imageProjection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
+add_executable(zr_imageProjection src/imageProjection.cpp)
+target_link_libraries(zr_imageProjection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
 
 add_executable(test_pcl src/test_pcl.cpp)
 target_link_libraries(test_pcl ${PCL_LIBRARIES})
@@ -305,17 +305,17 @@ install(TARGETS merge_map
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
-install(TARGETS fastlio_mapping
+install(TARGETS zr_fastlio_mapping
               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
-install(TARGETS imageProjection
+install(TARGETS zr_imageProjection
               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
-install(TARGETS featureExtraction
+install(TARGETS zr_featureExtraction
               ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
               RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})

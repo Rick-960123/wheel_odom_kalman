@@ -13,7 +13,7 @@
   <param name="runtime_pos_log_enable" type="bool" value="0" />
   <param name="pcd_save_enable" type="bool" value="0" />
 
-  <node pkg="wheel_odom_kalman" type="fastlio_mapping" name="laserMapping" output="screen" />
+  <node pkg="wheel_odom_kalman" type="zr_fastlio_mapping" name="zr_laserMapping" output="screen" />
   <node pkg="wheel_odom_kalman" type="localization_node" name="localization_node" output="screen">
   </node>
   <!-- <node pkg="wheel_odom_kalman" type="wheel_odom_ekf" name="wheel_odom_ekf" output="screen">
