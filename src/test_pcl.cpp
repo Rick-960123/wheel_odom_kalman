@@ -9,7 +9,7 @@
 #include <chrono>
 
 void filter_points(pcl::PointCloud<pcl::PointXYZ>::Ptr& input, pcl::PointCloud<pcl::PointXYZ>::Ptr& output,
-                   float scale = 0.25)
+                   float scale = 0.2)
 {
   // 创建Voxel Grid滤波器对象
   pcl::VoxelGrid<pcl::PointXYZ> pcl_filter;
@@ -25,8 +25,8 @@ int main()
   // 加载雷达点云
   pcl::PointCloud<pcl::PointXYZ>::Ptr radar_cloud(new pcl::PointCloud<pcl::PointXYZ>);
   // 加载雷达点云数数据
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/"
-                                          "source.pcd",
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/rizhao/gpw/"
+                                          "GlobalMap_1.pcd",
                                           *radar_cloud) == -1)
   {
     PCL_ERROR("Couldn't read PCD file.\n");
@@ -35,8 +35,8 @@ int main()
 
   // 加载PCD文件点云
   pcl::PointCloud<pcl::PointXYZ>::Ptr pcd_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/"
-                                          "target.pcd",
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/rizhao/gpw/"
+                                          "GlobalMap_2.pcd",
                                           *pcd_cloud) == -1)
   {
     PCL_ERROR("Couldn't read PCD file.\n");
@@ -186,7 +186,7 @@ int main()
   // pcl::transformPointCloud(*radar_cloud, trans_cloud, trans);
 
   *target += trans_cloud;
-  pcl::io::savePCDFileBinary("/home/zhen/Rosbag/test_pcd/trans_map_rizhao_0.2.pcd", *target);
+  pcl::io::savePCDFileBinary("/home/zhen/Rosbag/test_pcd/rizhao/gpw/trans_map_rizhao_0.2.pcd", *target);
 
   // Eigen::Vector3f euler_angles = initial_guess.block<3, 3>(0, 0).eulerAngles(2, 1, 0);  // 顺序为 ZYX
 
