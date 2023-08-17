@@ -275,13 +275,16 @@ add_dependencies(localization_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_
 target_link_libraries(localization_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES}  yaml-cpp ${PCL_LIBRARIES} fmt::fmt)
 
 add_executable(zr_fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
+add_dependencies(zr_fastlio_mapping ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(zr_fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
 target_include_directories(zr_fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
 
 add_executable(zr_featureExtraction src/featureExtraction.cpp)
+add_dependencies(zr_featureExtraction ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(zr_featureExtraction ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
 
 add_executable(zr_imageProjection src/imageProjection.cpp)
+add_dependencies(zr_imageProjection ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(zr_imageProjection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
 
 add_executable(test_pcl src/test_pcl.cpp)
