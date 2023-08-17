@@ -67,7 +67,7 @@ static bool exit_initial_thread = false;
 
 static std::string localization_status = "fail";
 static std::string current_map_name = "";
-static std::string status_file_dir = "/home/justin/zhenrobot/.loc_status/";
+static std::string status_file_dir = "/home/justin/zhenrobot/.status/";
 static std::string map_file_dir = "/home/justin/zhenrobot/map/";
 
 Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom,
