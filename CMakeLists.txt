@@ -285,7 +285,6 @@ target_link_libraries(zr_featureExtraction ${catkin_LIBRARIES} ${OpenCV_LIBRARIE
 
 add_executable(zr_imageProjection src/imageProjection.cpp)
 add_dependencies(zr_imageProjection ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-add_dependencies(zr_imageProjection ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(zr_imageProjection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES} fmt::fmt)
 
 add_executable(test_pcl src/test_pcl.cpp)

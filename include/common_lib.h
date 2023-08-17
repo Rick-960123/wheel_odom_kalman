@@ -165,7 +165,7 @@ T deg2rad(T degrees)
 }
 
 template<typename T>
-auto set_pose6d(const double t, const Matrix<T, 3, 1> &a, const Matrix<T, 3, 1> &g, \
+Pose6D set_pose6d(const double t, const Matrix<T, 3, 1> &a, const Matrix<T, 3, 1> &g, \
                 const Matrix<T, 3, 1> &v, const Matrix<T, 3, 1> &p, const Matrix<T, 3, 3> &R)
 {
     Pose6D rot_kp;
@@ -178,7 +178,7 @@ auto set_pose6d(const double t, const Matrix<T, 3, 1> &a, const Matrix<T, 3, 1> 
         rot_kp.pos[i] = p(i);
         for (int j = 0; j < 3; j++)  rot_kp.rot[i*3+j] = R(i,j);
     }
-    return move(rot_kp);
+    return rot_kp;
 }
 
 /* comment
