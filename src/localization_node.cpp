@@ -683,7 +683,7 @@ int main(int argc, char** argv)
   std::string robot_id;
   private_nh.param<std::string>("/robot_id", robot_id, "ZR1001");
 
-  std::string prefix = "/" + robot_id + "/lidar";
+  std::string prefix = "/lidar";
   std::vector<double> T_base_to_lidar_vector, T_imu_to_lidar_vector;
 
   private_nh.param<std::vector<double>>(prefix + "/T_base_to_lidar", T_base_to_lidar_vector, std::vector<double>());

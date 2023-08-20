@@ -16,18 +16,18 @@
   <node pkg="wheel_odom_kalman" type="zr_fastlio_mapping" name="zr_laserMapping" output="screen" />
   <node pkg="wheel_odom_kalman" type="localization_node" name="localization_node" output="screen">
   </node>
-  <!-- <node pkg="wheel_odom_kalman" type="wheel_odom_ekf" name="wheel_odom_ekf" output="screen">
+  <node pkg="wheel_odom_kalman" type="wheel_odom_ekf" name="wheel_odom_ekf" output="screen">
     <param name="imu_topic" type="string" value="/imu_data"/>
-  </node> -->
+  </node>
 
   <!-- <node pkg="wheel_odom_kalman" type="imageProjection" name="imageProjection" output="screen">
     </node>
     <node pkg="wheel_odom_kalman" type="featureExtraction" name="featureExtraction" output="screen">
     </node> -->
 
-  <arg name="rviz" default="true" />
+  <!-- <arg name="rviz" default="true" />
   <group if="$(arg rviz)">
     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz"
       args="-d $(find wheel_odom_kalman)/config/rviz.rviz" />
-  </group>
+  </group> -->
 </launch>

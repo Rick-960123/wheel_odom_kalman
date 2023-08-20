@@ -573,12 +573,12 @@ int main(int argc, char** argv)
                                     // 就默认读取map11150
 
   // // Get wheel parameters for specific robot from YAML file
-  wheel_odom_eskf::wheel_radius = config[robot_id]["wheel_radius"].as<double>();
-  wheel_odom_eskf::encoder_ticks_per_rev = config[robot_id]["encoder_ticks_per_rev"].as<int>();
-  wheel_odom_eskf::wheelbase = config[robot_id]["wheelbase"].as<double>();
-  wheel_odom_eskf::wheelratio = config[robot_id]["wheelratio"].as<double>();
+  wheel_odom_eskf::wheel_radius = config["wheel_radius"].as<double>();
+  wheel_odom_eskf::encoder_ticks_per_rev = config["encoder_ticks_per_rev"].as<int>();
+  wheel_odom_eskf::wheelbase = config["wheelbase"].as<double>();
+  wheel_odom_eskf::wheelratio = config["wheelratio"].as<double>();
   std::vector<double> t_i_enc;
-  t_i_enc = config[robot_id]["T_enc_to_imu"].as<std::vector<double>>();
+  t_i_enc = config["T_enc_to_imu"].as<std::vector<double>>();
   eskf::T_enc_to_imu = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(t_i_enc.data()).transpose();
 
   ROS_INFO(
