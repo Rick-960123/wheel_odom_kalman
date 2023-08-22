@@ -23,6 +23,8 @@ void filter_points(pcl::PointCloud<pcl::PointXYZI>::Ptr& input, pcl::PointCloud<
 int main()
 {
   std::string ws = "/home/justin/zhenrobot/map/korea/";
+  std::string source_pcd_name = "GlobalMap.pcd";
+  std::string target_pcd_name = "alleyway.pcd";
   Eigen::Matrix4f initial_guess;
   Eigen::Vector3f croped_center;
   initial_guess << -0.96, 0.249, 0.0, 9.5, -0.2, -0.96, 0.000, 1.096, 0.0, 0.00, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
@@ -30,13 +32,13 @@ int main()
   float vovel_size = 0.2;
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr source(new pcl::PointCloud<pcl::PointXYZI>);
-  if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + "GlobalMap.pcd", *source) == -1)
+  if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + source_pcd_name, *source) == -1)
   {
     PCL_ERROR("Couldn't read PCD file.\n");
     return -1;
   }
   pcl::PointCloud<pcl::PointXYZI>::Ptr target(new pcl::PointCloud<pcl::PointXYZI>);
-  if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + "alleyway.pcd", *target) == -1)
+  if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + target_pcd_name, *target) == -1)
   {
     PCL_ERROR("Couldn't read PCD file.\n");
     return -1;
