@@ -406,8 +406,7 @@ int main(int argc, char** argv)
   // Load parameters from YAML file
   std::string yaml_file;
   std::string imu_topic;
-  nh.param<std::string>("file_path", yaml_file,
-                        "/home/justin/ZROS/ros/src/localization/packages/wheel_odom_kalman/config/encoder.yaml");
+  nh.param<std::string>("file_path", yaml_file, "encoder.yaml");
   nh.param<std::string>("imu_topic", imu_topic, "/imu_data");
   YAML::Node config = YAML::LoadFile(yaml_file);
 
@@ -415,10 +414,10 @@ int main(int argc, char** argv)
   nh.param<std::string>("/robot_id", robot_id, "ZR1001");
 
   // // Get wheel parameters for specific robot from YAML file
-  wheel_odom_ekf::wheel_radius = config[robot_id]["wheel_radius"].as<double>();
-  wheel_odom_ekf::encoder_ticks_per_rev = config[robot_id]["encoder_ticks_per_rev"].as<int>();
-  wheel_odom_ekf::wheelbase = config[robot_id]["wheelbase"].as<double>();
-  wheel_odom_ekf::wheelratio = config[robot_id]["wheelratio"].as<double>();
+  wheel_odom_ekf::wheel_radius = config["wheel_radius"].as<double>();
+  wheel_odom_ekf::encoder_ticks_per_rev = config["encoder_ticks_per_rev"].as<int>();
+  wheel_odom_ekf::wheelbase = config["wheelbase"].as<double>();
+  wheel_odom_ekf::wheelratio = config["wheelratio"].as<double>();
 
   ROS_INFO(
       "wheel_odom_ekf_node::main robot_id = %s wheel_radius = %f "
