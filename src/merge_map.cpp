@@ -82,9 +82,7 @@ int main()
                                      1.0));  // 设置框体的最小点坐标
   crop_filter.setMax(Eigen::Vector4f(croped_center(0) + 50, croped_center(1) + 50.0, croped_center(2) + 50.0,
                                      1.0));  // 设置框体的最大点坐标
-  // // 执行点云截取操作
   crop_filter.filter(*croped_target);
-  // 保存截取后的点云
   pcl::io::savePCDFile<pcl::PointXYZI>(ws + "croped_target.pcd", *croped_target);
 
   crop_filter.setInputCloud(trans_source);
@@ -92,29 +90,19 @@ int main()
                                      1.0));  // 设置框体的最小点坐标
   crop_filter.setMax(Eigen::Vector4f(croped_center(0) + 50, croped_center(1) + 50.0, croped_center(2) + 50.0,
                                      1.0));  // 设置框体的最大点坐标
-  // 执行点云截取操作
   crop_filter.filter(*croped_source);
-  // 保存截取后的点云
   pcl::io::savePCDFile<pcl::PointXYZI>(ws + "croped_source.pcd", *croped_source);
 
-  // 创建配准对象
   pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI> gicp;
   gicp.setInputSource(croped_source);
   gicp.setInputTarget(croped_target);
-
-  // 设置配准参数
   gicp.setMaximumIterations(500);          // 设置最大迭代次数
   gicp.setTransformationEpsilon(1e-8);     // 设置收敛条件
   gicp.setEuclideanFitnessEpsilon(0.001);  // 设置配准误差
-  // 获取当前时间点
   std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-
-  // 执行配准
   pcl::PointCloud<pcl::PointXYZI> aligned_cloud;
-
   Eigen::Quaternionf quaternion(0.52532199, 0., 0., 0.85090352);
   Eigen::Vector3f translation(-3.0, 112.0, 0.0);
-
   Eigen::Matrix4f identity = Eigen::Matrix4f::Identity();
   gicp.align(aligned_cloud, identity);
 
