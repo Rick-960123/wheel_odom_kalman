@@ -27,6 +27,7 @@ int main()
   Eigen::Vector3f croped_center;
   initial_guess << -0.96, 0.249, 0.0, 9.5, -0.2, -0.96, 0.000, 1.096, 0.0, 0.00, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
   croped_center << 24, 0, 0;
+  float vovel_size = 0.2;
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr source(new pcl::PointCloud<pcl::PointXYZI>);
   if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + "GlobalMap.pcd", *source) == -1)
@@ -43,8 +44,8 @@ int main()
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr voxeled_target(new pcl::PointCloud<pcl::PointXYZI>);
   pcl::PointCloud<pcl::PointXYZI>::Ptr voxeled_source(new pcl::PointCloud<pcl::PointXYZI>);
-  filter_points(target, voxeled_target);
-  filter_points(source, voxeled_source);
+  filter_points(target, voxeled_target, vovel_size);
+  filter_points(source, voxeled_source, vovel_size);
   pcl::io::savePCDFile<pcl::PointXYZI>(ws + "voxeled_source.pcd", *voxeled_source);
   pcl::io::savePCDFile<pcl::PointXYZI>(ws + "voxeled_target.pcd", *voxeled_target);
 
@@ -145,7 +146,7 @@ int main()
   std::cout << "变换矩阵:\n" << gicp2.getFinalTransformation() << std::endl;
 
   *target += trans_cloud;
-  pcl::io::savePCDFileBinary(ws + "alleyway_0.1.pcd", *target);
+  pcl::io::savePCDFileBinary(ws + "merged_map.pcd", *target);
 
   // // // 创建NDT对象并设置参数
   // pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt;
