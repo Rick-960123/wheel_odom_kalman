@@ -22,34 +22,36 @@ void filter_points(pcl::PointCloud<pcl::PointXYZ>::Ptr& input, pcl::PointCloud<p
 
 int main()
 {
-  // 加载雷达点云
-  pcl::PointCloud<pcl::PointXYZ>::Ptr radar_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  // 加载雷达点云数数据
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/"
-                                          "source.pcd",
-                                          *radar_cloud) == -1)
-  {
-    PCL_ERROR("Couldn't read PCD file.\n");
-    return -1;
-  }
+  std::string ws = "/home/justin/zhenrobot/map/korea/";
+  Eigen::Matrix4f initial_guess;
+  Eigen::Vector3f croped_center;
+  initial_guess << -0.0283884, -0.9958858, -0.00114872, 66, 0.998859, -0.0283883, -0.000254234, -189, -8.23291e-05,
+      -0.00117364, 0.999999, 0, 0, 0, 0, 1;
+  croped_center << 24, 0, 0;
 
-  // 加载PCD文件点云
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pcd_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/"
-                                          "target.pcd",
-                                          *pcd_cloud) == -1)
-  {
-    PCL_ERROR("Couldn't read PCD file.\n");
-    return -1;
-  }
-
-  pcl::PointCloud<pcl::PointXYZ>::Ptr target(new pcl::PointCloud<pcl::PointXYZ>);
   pcl::PointCloud<pcl::PointXYZ>::Ptr source(new pcl::PointCloud<pcl::PointXYZ>);
-  filter_points(radar_cloud, source);
-  filter_points(pcd_cloud, target);
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>(ws + "GlobalMap.pcd", *source) == -1)
+  {
+    PCL_ERROR("Couldn't read PCD file.\n");
+    return -1;
+  }
+  pcl::PointCloud<pcl::PointXYZ>::Ptr target(new pcl::PointCloud<pcl::PointXYZ>);
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>(ws + "alleyway.pcd", *target) == -1)
+  {
+    PCL_ERROR("Couldn't read PCD file.\n");
+    return -1;
+  }
 
-  // pcl::io::savePCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/source.pcd", *source);
-  // pcl::io::savePCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/target.pcd", *target);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr voxeled_target(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr voxeled_source(new pcl::PointCloud<pcl::PointXYZ>);
+  filter_points(target, voxeled_target);
+  filter_points(source, voxeled_source);
+  pcl::io::savePCDFile<pcl::PointXYZ>(ws + "voxeled_source.pcd", *voxeled_source);
+  pcl::io::savePCDFile<pcl::PointXYZ>(ws + "voxeled_target.pcd", *voxeled_target);
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr trans_source(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::transformPointCloud(*voxeled_source, *trans_source, initial_guess);
+  pcl::io::savePCDFile<pcl::PointXYZ>(ws + "trans_source.pcd", *trans_source);
 
   // // 定义截取的原点和半径
   // pcl::PointXYZ center;  // 截取原点
@@ -65,35 +67,38 @@ int main()
   // radius_filter.setNegative(true);  // 设置为true以保留指定半径范围内的点云
 
   // // 执行点云截取操作
-  pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_target(new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_source(new pcl::PointCloud<pcl::PointXYZ>);
   // radius_filter.filter(*filtered_cloud);
 
   // // 保存截取后的点云
   // pcl::io::savePCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/filtered_cloud.pcd", *filtered_cloud);
 
-  // 定义截取的框体参数
+  pcl::PointCloud<pcl::PointXYZ>::Ptr croped_target(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr croped_source(new pcl::PointCloud<pcl::PointXYZ>);
   pcl::CropBox<pcl::PointXYZ> crop_filter;
   crop_filter.setInputCloud(target);
-  crop_filter.setMin(Eigen::Vector4f(20, -170, -50, 1.0));       // 设置框体的最小点坐标
-  crop_filter.setMax(Eigen::Vector4f(120.0, -70.0, 50.0, 1.0));  // 设置框体的最大点坐标
+  crop_filter.setMin(Eigen::Vector4f(croped_center(0) - 50, croped_center(1) - 50, croped_center(2) - 50,
+                                     1.0));  // 设置框体的最小点坐标
+  crop_filter.setMax(Eigen::Vector4f(croped_center(0) + 50, croped_center(1) + 50.0, croped_center(2) + 50.0,
+                                     1.0));  // 设置框体的最大点坐标
   // // 执行点云截取操作
-  crop_filter.filter(*filtered_target);
+  crop_filter.filter(*croped_target);
   // 保存截取后的点云
-  pcl::io::savePCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/output_cloud_target.pcd", *filtered_target);
+  pcl::io::savePCDFile<pcl::PointXYZ>(ws + "croped_target.pcd", *croped_target);
 
-  crop_filter.setInputCloud(source);
-  crop_filter.setMin(Eigen::Vector4f(20.0, -60.0, -50.0, 1.0));  // 设置框体的最小点坐标
-  crop_filter.setMax(Eigen::Vector4f(120.0, 40.0, 50.0, 1.0));   // 设置框体的最大点坐标
-  // // 执行点云截取操作
-  crop_filter.filter(*filtered_source);
+  crop_filter.setInputCloud(trans_source);
+  crop_filter.setMin(Eigen::Vector4f(croped_center(0) - 50, croped_center(1) - 50, croped_center(2) - 50,
+                                     1.0));  // 设置框体的最小点坐标
+  crop_filter.setMax(Eigen::Vector4f(croped_center(0) + 50, croped_center(1) + 50.0, croped_center(2) + 50.0,
+                                     1.0));  // 设置框体的最大点坐标
+  // 执行点云截取操作
+  crop_filter.filter(*croped_source);
   // 保存截取后的点云
-  pcl::io::savePCDFile<pcl::PointXYZ>("/home/zhen/Rosbag/test_pcd/output_cloud_source.pcd", *filtered_source);
+  pcl::io::savePCDFile<pcl::PointXYZ>(ws + "croped_source.pcd", *croped_source);
 
   // 创建配准对象
   pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> gicp;
-  gicp.setInputSource(filtered_source);
-  gicp.setInputTarget(filtered_target);
+  gicp.setInputSource(croped_source);
+  gicp.setInputTarget(croped_target);
 
   // 设置配准参数
   gicp.setMaximumIterations(500);          // 设置最大迭代次数
@@ -108,32 +113,40 @@ int main()
   Eigen::Quaternionf quaternion(0.52532199, 0., 0., 0.85090352);
   Eigen::Vector3f translation(-3.0, 112.0, 0.0);
 
-  Eigen::Matrix4f initial_guess = Eigen::Matrix4f::Identity();
-  // initial_guess.block<3, 3>(0, 0) = quaternion.matrix();
-  // initial_guess.block<3, 1>(0, 3) = translation;
+  Eigen::Matrix4f identity = Eigen::Matrix4f::Identity();
+  gicp.align(aligned_cloud, identity);
 
-  initial_guess << -0.0283884, -0.9958858, -0.00114872, 66, 0.998859, -0.0283883, -0.000254234, -189, -8.23291e-05,
-      -0.00117364, 0.999999, 0, 0, 0, 0, 1;
-
-  gicp.align(aligned_cloud, initial_guess);
-
-  // 输出配准结果
   std::cout << "是否收敛: " << gicp.hasConverged() << std::endl;
   std::cout << "迭代次数: " << gicp.getMaximumIterations() << std::endl;
   std::cout << "配准误差: " << gicp.getFitnessScore() << std::endl;
   std::cout << "变换矩阵:\n" << gicp.getFinalTransformation() << std::endl;
 
-  // 获取当前时间点
   std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-  // 计算时间差（以毫秒为单位）
   std::chrono::duration<double, std::milli> duration_ms = end - start;
-
-  // 打印时间差
   std::cout << "时间差（毫秒）: " << duration_ms.count() << "ms" << std::endl;
 
-  // 保存配准后的点云
-  pcl::io::savePCDFileBinary("/home/zhen/Rosbag/test_pcd/aligned_cloud.pcd", aligned_cloud);
+  pcl::io::savePCDFileBinary(ws + "aligned_cloud.pcd", aligned_cloud);
+
+  pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> gicp2;
+  pcl::PointCloud<pcl::PointXYZ> trans_cloud;
+  gicp2.setInputSource(trans_source);
+  gicp2.setInputTarget(target);
+  gicp2.setMaximumIterations(500);          // 设置最大迭代次数
+  gicp2.setTransformationEpsilon(1e-8);     // 设置收敛条件
+  gicp2.setEuclideanFitnessEpsilon(0.001);  // 设置配准误差
+  Eigen::Matrix4f trans = gicp.getFinalTransformation();
+  gicp2.align(trans_cloud, trans);
+
+  // 输出配准结果
+  std::cout << "trans_cloud: " << trans_cloud.size() << std::endl;
+  std::cout << "source: " << source->size() << std::endl;
+  std::cout << "是否收敛: " << gicp2.hasConverged() << std::endl;
+  std::cout << "迭代次数: " << gicp2.getMaximumIterations() << std::endl;
+  std::cout << "配准误差: " << gicp2.getFitnessScore() << std::endl;
+  std::cout << "变换矩阵:\n" << gicp2.getFinalTransformation() << std::endl;
+
+  *target += trans_cloud;
+  pcl::io::savePCDFileBinary(ws + "alleyway_0.1.pcd", *target);
 
   // // // 创建NDT对象并设置参数
   // pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
@@ -162,31 +175,6 @@ int main()
   // std::cout << "配准是否成功：" << ndt.hasConverged() << std::endl;
   // std::cout << "变换矩阵：" << std::endl << ndt.getFinalTransformation() << std::endl;
   // pcl::io::savePCDFileBinary("/home/zhen/Rosbag/test_pcd/ndt_aligned_cloud.pcd", aligned_cloud);
-
-  pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> gicp2;
-  pcl::PointCloud<pcl::PointXYZ> trans_cloud;
-  gicp2.setInputSource(source);
-  gicp2.setInputTarget(target);
-  gicp2.setMaximumIterations(500);           // 设置最大迭代次数
-  gicp2.setTransformationEpsilon(1e-8);     // 设置收敛条件
-  gicp2.setEuclideanFitnessEpsilon(0.001);  // 设置配准误差
-  Eigen::Matrix4f trans = gicp.getFinalTransformation();
-  gicp2.align(trans_cloud, trans);
-
-  // 输出配准结果
-  std::cout << "trans_cloud: " << trans_cloud.size() << std::endl;
-  std::cout << "source: " << source->size() << std::endl;
-  std::cout << "是否收敛: " << gicp2.hasConverged() << std::endl;
-  std::cout << "迭代次数: " << gicp2.getMaximumIterations() << std::endl;
-  std::cout << "配准误差: " << gicp2.getFitnessScore() << std::endl;
-  std::cout << "变换矩阵:\n" << gicp2.getFinalTransformation() << std::endl;
-
-  // pcl::PointCloud<pcl::PointXYZ> trans_cloud;
-  // trans = gicp2.getFinalTransformation();
-  // pcl::transformPointCloud(*radar_cloud, trans_cloud, trans);
-
-  *target += trans_cloud;
-  pcl::io::savePCDFileBinary("/home/zhen/Rosbag/test_pcd/trans_map_rizhao_0.2.pcd", *target);
 
   // Eigen::Vector3f euler_angles = initial_guess.block<3, 3>(0, 0).eulerAngles(2, 1, 0);  // 顺序为 ZYX
 
