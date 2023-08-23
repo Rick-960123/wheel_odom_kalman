@@ -1,5 +1,5 @@
 common:
-    lid_topic:  "/velodyne_points"
+    lid_topic:  "/points_lio"
     # imu_topic:  "/imu/data"
     #lid_topic:  "points_raw"
     imu_topic:  "/imu_data"
