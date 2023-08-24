@@ -355,7 +355,7 @@ bool is_loss()
 bool global_localization(Eigen::Matrix4d& pose_estimation)
 {
   crop_global_map_in_FOV(pose_estimation);
-  matching_result res = registration_at_scale(cur_keypoints_in_odom, sub_map, pose_estimation, 2);
+  matching_result res = registration_at_scale(cur_keypoints_in_odom, sub_map, pose_estimation, 5);
   res = registration_at_scale(cur_keypoints_in_odom, sub_map, res.trans, 1);
   fitness = res.fitness;
   if (fitness < fitness_score_threshold)
@@ -386,7 +386,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr detect_iss_keypoints(pcl::PointCloud<pcl::Po
   iss_detector.setThreshold21(0.975);
   iss_detector.setThreshold32(0.975);
   iss_detector.setMinNeighbors(5);
-  iss_detector.setNumberOfThreads(4);
+  iss_detector.setNumberOfThreads(1);
   iss_detector.compute(*iss_keypoints);
   return iss_keypoints;
 }
@@ -569,6 +569,7 @@ void points_callback(const sensor_msgs::PointCloud2::ConstPtr& msg_ptr)
   std::lock_guard<std::mutex> lock(mutex);
   pcl::fromROSMsg(*msg_ptr, *cur_scan_in_odom);
   cur_scan_stamp = ros::Time::now();
+  cur_scan_in_odom = voxel_down_sample(cur_scan_in_odom, scan_voxel_size);
   cur_keypoints_in_odom = detect_iss_keypoints(cur_scan_in_odom);
 }
 
