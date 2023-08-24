@@ -168,6 +168,16 @@ void pub_topic()
   transform.setRotation(qua);
   br.sendTransform(tf::StampedTransform(transform, cur_time, "map", "camera_init"));
 
+  q = Eigen::Quaterniond(T_wheel_odom_to_map.block<3, 3>(0, 0));
+  q.normalize();
+  transform.setOrigin(tf::Vector3(T_wheel_odom_to_map(0, 3), T_wheel_odom_to_map(1, 3), T_wheel_odom_to_map(2, 3)));
+  qua.setW(q.w());
+  qua.setX(q.x());
+  qua.setY(q.y());
+  qua.setZ(q.z());
+  transform.setRotation(qua);
+  br.sendTransform(tf::StampedTransform(transform, cur_time, "map", "wheel_odom"));
+
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
   q_.normalize();
