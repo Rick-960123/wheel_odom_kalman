@@ -54,11 +54,11 @@
 #include <pcl_ros/transforms.h>
 
 #define PI (3.1415926)
-static int map_loaded = 0;
 static int loss_cnt = 0;
 static double fitness_score_threshold;
 static double fitness, map_voxel_size, scan_voxel_size, sub_map_size;
 
+static bool map_loaded = false;
 static bool need_initial = true;
 static bool use_ndt = true;
 static bool wheel_odom_only_flag = false;
@@ -264,7 +264,7 @@ void map_callback(const std_msgs::String::Ptr& msg_ptr)
     ofs.open(status_file_dir + "current_map_name", std::ios::out);
     ofs << current_map_name << std::endl;
     ofs.close();
-    map_loaded = 1;
+    map_loaded = true;
     ROS_INFO("地图加载成功!");
   }
   else
@@ -504,7 +504,7 @@ void add_keyframe()
 
 void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg_ptr)
 {
-  if (map_loaded == 1)
+  if (map_loaded)
   {
     reset_odom("all");
 
