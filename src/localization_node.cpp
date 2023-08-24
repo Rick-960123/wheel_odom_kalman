@@ -236,6 +236,7 @@ void reset_state()
   T_base_to_wheel_odom = Eigen::Matrix4d::Identity();
   T_wheel_odom_to_map = Eigen::Matrix4d::Identity();
   fitness_score_threshold = use_ndt ? 0.6 : 0.4;
+  keyframes.clear();
   ROS_INFO("已初始化状态变量");
 }
 
