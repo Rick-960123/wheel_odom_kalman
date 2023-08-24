@@ -660,7 +660,7 @@ void thread_fuc()
     {
       std::lock_guard<std::mutex> lock(mutex);
       add_keyframe();
-      if (map_loaded == 1 && !need_initial)
+      if (map_loaded && !need_initial)
       {
         global_localization(T_odom_to_map);
         is_loss();
@@ -705,7 +705,7 @@ int main(int argc, char** argv)
 
   private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.4);
   private_nh.param<double>("/sub_map_size", sub_map_size, 100);
-  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.4);
+  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.2);
   private_nh.param<bool>("/use_ndt", use_ndt, false);
 
   // Publishers
