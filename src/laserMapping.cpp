@@ -571,7 +571,7 @@ void set_posestamp(T& out)
 void publish_odometry(const ros::Publisher& pubOdomAftMapped)
 {
   odomAftMapped.header.frame_id = "camera_init";
-  odomAftMapped.child_frame_id = "body";
+  odomAftMapped.child_frame_id = "base_link";
   //    odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
   odomAftMapped.header.stamp = ros::Time::now();  // ros::Time().fromSec(lidar_end_time);
   set_posestamp(odomAftMapped.pose);
@@ -599,8 +599,8 @@ void publish_odometry(const ros::Publisher& pubOdomAftMapped)
   q.setZ(odomAftMapped.pose.pose.orientation.z);
   transform.setRotation(q);
   // TODO 这里使用当前时间发布tf 否则当livox时间不正确时无法正常tf
-  //    br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init", "body" ) );
-  br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "camera_init", "body"));
+  //    br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init", "base_link" ) );
+  br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "camera_init", "base_link"));
 }
 
 void publish_path(const ros::Publisher pubPath)

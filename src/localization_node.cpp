@@ -152,14 +152,15 @@ Eigen::Matrix4d se3_inverse(const Eigen::Matrix4d& T)
 
 tf::Transform eigenMatrix4dToTfTransform(const Eigen::Matrix4d& eigen_mat)
 {
-    Eigen::Matrix3d eigen_rot = eigen_mat.block<3, 3>(0, 0);
-    Eigen::Vector3d eigen_trans = eigen_mat.block<3, 1>(0, 3);
+  Eigen::Matrix3d eigen_rot = eigen_mat.block<3, 3>(0, 0);
+  Eigen::Vector3d eigen_trans = eigen_mat.block<3, 1>(0, 3);
 
-    Eigen::Quaterniond eigen_quat(eigen_rot);
-    tf::Transform tf_transform;
-    tf_transform.setOrigin(tf::Vector3(eigen_trans(0), eigen_trans(1), eigen_trans(2)));
-    tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
-    return tf_transform;
+  Eigen::Quaterniond eigen_quat(eigen_rot);
+  eigen_quat.normalize();
+  tf::Transform tf_transform;
+  tf_transform.setOrigin(tf::Vector3(eigen_trans(0), eigen_trans(1), eigen_trans(2)));
+  tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
+  return tf_transform;
 }
 
 void pub_topic()
@@ -168,7 +169,8 @@ void pub_topic()
 
   tf::TransformBroadcaster br;
   br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
-  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
+  br.sendTransform(
+      tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
 
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
