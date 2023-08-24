@@ -167,7 +167,7 @@ void pub_odom()
   static tf::TransformBroadcaster broadcaster;
   geometry_msgs::TransformStamped odom_trans;
   odom_trans.header.frame_id = "wheel_odom";
-  odom_trans.child_frame_id = "base_link";
+  odom_trans.child_frame_id = "base_link_in_wheel_odom";
   odom_trans.header.stamp = last_imu_stamp;
   odom_trans.transform.translation.x = current_pose_x;
   odom_trans.transform.translation.y = current_pose_y;
@@ -179,7 +179,7 @@ void pub_odom()
   nav_msgs::Odometry odom;
   odom.header.stamp = last_imu_stamp;
   odom.header.frame_id = "wheel_odom";
-  odom.child_frame_id = "base_link";
+  odom.child_frame_id = "base_link_in_wheel_odom";
   odom.pose.pose.position.x = current_pose_x;
   odom.pose.pose.position.y = current_pose_y;
   odom.pose.pose.position.z = current_pose_z;

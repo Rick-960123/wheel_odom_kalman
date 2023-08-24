@@ -168,15 +168,10 @@ void pub_topic()
   auto cur_time = ros::Time::now();
 
   tf::TransformBroadcaster br;
-  if (wheel_odom_only_flag)
-  {
-    br.sendTransform(
-        tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
-  }
-  else
-  {
-    br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
-  };
+
+  br.sendTransform(
+      tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
+  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
 
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
