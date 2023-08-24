@@ -54,11 +54,11 @@
 #include <pcl_ros/transforms.h>
 
 #define PI (3.1415926)
+static int map_loaded = 0;
 static int loss_cnt = 0;
 static double fitness_score_threshold;
 static double fitness, map_voxel_size, scan_voxel_size, sub_map_size;
 
-static bool map_loaded = false;
 static bool need_initial = true;
 static bool use_ndt = true;
 static bool wheel_odom_only_flag = false;
@@ -150,27 +150,23 @@ Eigen::Matrix4d se3_inverse(const Eigen::Matrix4d& T)
   return T_inverse.matrix();
 }
 
-tf::Transform eigenMatrix4dToTfTransform(const Eigen::Matrix4d& eigen_mat)
-{
-  Eigen::Matrix3d eigen_rot = eigen_mat.block<3, 3>(0, 0);
-  Eigen::Vector3d eigen_trans = eigen_mat.block<3, 1>(0, 3);
-
-  Eigen::Quaterniond eigen_quat(eigen_rot);
-  eigen_quat.normalize();
-  tf::Transform tf_transform;
-  tf_transform.setOrigin(tf::Vector3(eigen_trans(0), eigen_trans(1), eigen_trans(2)));
-  tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
-  return tf_transform;
-}
-
 void pub_topic()
 {
   auto cur_time = ros::Time::now();
+  static tf::TransformBroadcaster br;
+  Eigen::Quaterniond q;
+  q = Eigen::Quaterniond(T_odom_to_map.block<3, 3>(0, 0));
+  q.normalize();
 
-  tf::TransformBroadcaster br;
-
-  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), ros::Time::now(), "map", "wheel_odom"));
-  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), ros::Time::now(), "map", "camera_init"));
+  tf::Transform transform;
+  tf::Quaternion qua;
+  transform.setOrigin(tf::Vector3(T_odom_to_map(0, 3), T_odom_to_map(1, 3), T_odom_to_map(2, 3)));
+  qua.setW(q.w());
+  qua.setX(q.x());
+  qua.setY(q.y());
+  qua.setZ(q.z());
+  transform.setRotation(qua);
+  br.sendTransform(tf::StampedTransform(transform, cur_time, "map", "camera_init"));
 
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
@@ -266,7 +262,7 @@ void map_callback(const std_msgs::String::Ptr& msg_ptr)
     ofs.open(status_file_dir + "current_map_name", std::ios::out);
     ofs << current_map_name << std::endl;
     ofs.close();
-    map_loaded = true;
+    map_loaded = 1;
     ROS_INFO("地图加载成功!");
   }
   else
@@ -283,7 +279,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_sc
   if (use_ndt)
   {
     ndt.setResolution(1.0 * scale);
-    ndt.setMaximumIterations(10);
+    ndt.setMaximumIterations(5);
     ndt.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     ndt.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
     ndt.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -294,7 +290,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_sc
   {
     icp.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     icp.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
-    icp.setMaximumIterations(10);
+    icp.setMaximumIterations(5);
     icp.setTransformationEpsilon(1e-8);
     icp.setEuclideanFitnessEpsilon(0.001);
     icp.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -506,7 +502,7 @@ void add_keyframe()
 
 void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg_ptr)
 {
-  if (map_loaded)
+  if (map_loaded == 1)
   {
     reset_odom("all");
 
@@ -654,7 +650,7 @@ void thread_fuc()
     {
       std::lock_guard<std::mutex> lock(mutex);
       add_keyframe();
-      if (map_loaded && !need_initial)
+      if (map_loaded == 1 && !need_initial)
       {
         global_localization(T_odom_to_map);
         is_loss();
@@ -697,7 +693,7 @@ int main(int argc, char** argv)
   T_base_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(T_base_to_lidar_vector.data());
   T_imu_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(T_imu_to_lidar_vector.data());
 
-  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.4);
+  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.2);
   private_nh.param<double>("/sub_map_size", sub_map_size, 100);
   private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.2);
   private_nh.param<bool>("/use_ndt", use_ndt, false);

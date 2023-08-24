@@ -231,19 +231,20 @@ void CurrentPoseCallback(const geometry_msgs::PoseStampedPtr& pose)
     wheel_odom_ekf::init_state(ekf_pose_x, ekf_pose_y, ekf_pose_z, ekf_pose_roll, ekf_pose_pitch, ekf_pose_yaw);
     initialized_flag = true;
   }
-
-  offset_x = ekf_pose_x - previous_pose_x;
-  offset_y = ekf_pose_y - previous_pose_y;
-  offset_z = ekf_pose_z - previous_pose_z;
-  offset_yaw = ekf_pose_yaw - previous_pose_yaw;
-
-  double pose_distance = sqrt(offset_x * offset_x + offset_y * offset_y);
-
-  if ((fitness_score < (fitness_score_threshold)) && (pose_distance < 10.0) && encoder_iteration_num >= PERIOD)
+  else
   {
-    wheel_odom_ekf::init_state(ekf_pose_x, ekf_pose_y, ekf_pose_z, ekf_pose_roll, ekf_pose_pitch, ekf_pose_yaw);
-  }
+    offset_x = ekf_pose_x - previous_pose_x;
+    offset_y = ekf_pose_y - previous_pose_y;
+    offset_z = ekf_pose_z - previous_pose_z;
+    offset_yaw = ekf_pose_yaw - previous_pose_yaw;
 
+    double pose_distance = sqrt(offset_x * offset_x + offset_y * offset_y);
+
+    if ((fitness_score < (fitness_score_threshold)) && (pose_distance < 10.0) && encoder_iteration_num >= PERIOD)
+    {
+      wheel_odom_ekf::init_state(ekf_pose_x, ekf_pose_y, ekf_pose_z, ekf_pose_roll, ekf_pose_pitch, ekf_pose_yaw);
+    }
+  }
   previous_pose_x = ekf_pose_x;
   previous_pose_y = ekf_pose_y;
   previous_pose_z = ekf_pose_z;

@@ -14,8 +14,7 @@
   <param name="pcd_save_enable" type="bool" value="0" />
 
   <node pkg="wheel_odom_kalman" type="zr_fastlio_mapping" name="zr_laserMapping" output="screen" />
-  <node pkg="wheel_odom_kalman" type="localization_node" name="localization_node" output="screen">
-  </node>
+  <node pkg="wheel_odom_kalman" type="localization_node" name="localization_node" output="screen"/>
   <node pkg="wheel_odom_kalman" type="wheel_odom_ekf" name="wheel_odom_ekf" output="screen">
     <param name="imu_topic" type="string" value="/imu_data"/>
     <param name="file_path" type="string" value="$(find wheel_odom_kalman)/config/encoder.yaml"/>
