@@ -278,7 +278,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_sc
   if (use_ndt)
   {
     ndt.setResolution(1.0 * scale);
-    ndt.setMaximumIterations(30);
+    ndt.setMaximumIterations(10);
     ndt.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     ndt.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
     ndt.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -289,7 +289,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_sc
   {
     icp.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     icp.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
-    icp.setMaximumIterations(30);
+    icp.setMaximumIterations(10);
     icp.setTransformationEpsilon(1e-8);
     icp.setEuclideanFitnessEpsilon(0.001);
     icp.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -364,9 +364,9 @@ bool global_localization(Eigen::Matrix4d& pose_estimation)
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr detect_iss_keypoints(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
 {
-  pcl::search::KdTree<pcl::PointXYZ>::Ptr iss_tree(new pcl::search::KdTree<pcl::PointXYZ>());
-  pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> iss_detector;
-  pcl::PointCloud<pcl::PointXYZ>::Ptr iss_keypoints(new pcl::PointCloud<pcl::PointXYZ>());
+  static pcl::search::KdTree<pcl::PointXYZ>::Ptr iss_tree(new pcl::search::KdTree<pcl::PointXYZ>());
+  static pcl::PointCloud<pcl::PointXYZ>::Ptr iss_keypoints(new pcl::PointCloud<pcl::PointXYZ>());
+  static pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> iss_detector;
 
   iss_detector.setInputCloud(cloud);
   iss_detector.setSearchMethod(iss_tree);
@@ -627,7 +627,7 @@ void thread_fuc()
   ros::Rate rate(20);
   while (ros::ok())
   {
-    // std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     if (wheel_odom_only_flag != last_wheel_odom_only_flag)
     {
       last_wheel_odom_only_flag = wheel_odom_only_flag;
@@ -664,10 +664,9 @@ void thread_fuc()
       pub_topic();
     }
 
-    // std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-    // std::chrono::duration<double, std::milli> duration_ms = end - start;
-    // std::cout << "匹配消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
-
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> duration_ms = end - start;
+    std::cout << "匹配消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
     rate.sleep();
   }
   ROS_INFO("定位子线程已退出");
@@ -692,9 +691,9 @@ int main(int argc, char** argv)
   T_base_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(T_base_to_lidar_vector.data());
   T_imu_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(T_imu_to_lidar_vector.data());
 
-  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.3);
+  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.4);
   private_nh.param<double>("/sub_map_size", sub_map_size, 100);
-  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.3);
+  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.4);
   private_nh.param<bool>("/use_ndt", use_ndt, false);
 
   // Publishers
@@ -718,10 +717,10 @@ int main(int argc, char** argv)
   ros::Subscriber set_map_sub = private_nh.subscribe("/set_map", 10, map_callback);
   ros::Subscriber wheel_odom_only_sub = private_nh.subscribe("/wheel_odom_only", 10, wheel_odom_only_callback);
 
-  ros::Subscriber points_sub = private_nh.subscribe("/cloud_registered", 10, points_callback);
-  ros::Subscriber gnss_sub = private_nh.subscribe("/gnss_pose", 10, gnss_callback);
-  ros::Subscriber pcl_odom_sub = private_nh.subscribe("/Odometry", 1000, points_odom_callback);
-  ros::Subscriber wheel_odom_sub = private_nh.subscribe("/wheel_odom", 1000, wheel_odom_callback);
+  ros::Subscriber points_sub = private_nh.subscribe("/cloud_registered", 1, points_callback);
+  ros::Subscriber gnss_sub = private_nh.subscribe("/gnss_pose", 1, gnss_callback);
+  ros::Subscriber pcl_odom_sub = private_nh.subscribe("/Odometry", 1, points_odom_callback);
+  ros::Subscriber wheel_odom_sub = private_nh.subscribe("/wheel_odom", 1, wheel_odom_callback);
 
   reset_state();
   check_status();
