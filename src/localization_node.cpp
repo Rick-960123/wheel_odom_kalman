@@ -169,9 +169,8 @@ void pub_topic()
 
   tf::TransformBroadcaster br;
 
-  br.sendTransform(
-      tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
-  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
+  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), ros::Time::now(), "map", "wheel_odom"));
+  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), ros::Time::now(), "map", "camera_init"));
 
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
