@@ -73,14 +73,14 @@ static std::string map_file_dir = "/home/justin/zhenrobot/map/";
 Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom,
     T_base_to_lidar, T_imu_to_lidar;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr global_map(new pcl::PointCloud<pcl::PointXYZ>),
-    sub_map(new pcl::PointCloud<pcl::PointXYZ>), keyframes_pcl(new pcl::PointCloud<pcl::PointXYZ>),
-    cur_scan_in_odom(new pcl::PointCloud<pcl::PointXYZ>), cur_keypoints_in_odom(new pcl::PointCloud<pcl::PointXYZ>);
+pcl::PointCloud<pcl::PointXYZI>::Ptr global_map(new pcl::PointCloud<pcl::PointXYZI>),
+    sub_map(new pcl::PointCloud<pcl::PointXYZI>), keyframes_pcl(new pcl::PointCloud<pcl::PointXYZI>),
+    cur_scan_in_odom(new pcl::PointCloud<pcl::PointXYZI>), cur_keypoints_in_odom(new pcl::PointCloud<pcl::PointXYZI>);
 
-static pcl::CropBox<pcl::PointXYZ> crop_filter;
-static pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-static pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
-static pcl::VoxelGrid<pcl::PointXYZ> vox_filter;
+static pcl::CropBox<pcl::PointXYZI> crop_filter;
+static pcl::IterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI> icp;
+static pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt;
+static pcl::VoxelGrid<pcl::PointXYZI> vox_filter;
 
 static geometry_msgs::PoseStamped current_pose;
 static geometry_msgs::PoseWithCovarianceStamped ndt_cov_msg;
@@ -95,9 +95,9 @@ static ros::Publisher points_map_pub, current_cov_pose_pub, sub_map_pub, current
 
 struct keyframe
 {
-  keyframe() : feature_points_ptr(new pcl::PointCloud<pcl::PointXYZ>()){};
+  keyframe() : feature_points_ptr(new pcl::PointCloud<pcl::PointXYZI>()){};
   ros::Time timestamp;
-  pcl::PointCloud<pcl::PointXYZ>::Ptr feature_points_ptr;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr feature_points_ptr;
   Eigen::Matrix4d pose_in_odom;
   Eigen::Matrix4d pose_in_map;
 
@@ -122,10 +122,10 @@ struct keyframe
 
 struct matching_result
 {
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_ptr;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr pcl_ptr;
   Eigen::Matrix4d trans;
   double fitness;
-  matching_result() : pcl_ptr(new pcl::PointCloud<pcl::PointXYZ>()){};
+  matching_result() : pcl_ptr(new pcl::PointCloud<pcl::PointXYZI>()){};
 };
 
 static std::deque<keyframe> keyframes;
@@ -133,12 +133,12 @@ static std::mutex mutex;
 static std::thread main_thread, initial_thread;
 static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr voxel_down_sample(pcl::PointCloud<pcl::PointXYZ>::Ptr& pcd,
+pcl::PointCloud<pcl::PointXYZI>::Ptr voxel_down_sample(pcl::PointCloud<pcl::PointXYZI>::Ptr& pcd,
                                                       const double& voxel_size)
 {
   vox_filter.setInputCloud(pcd);
   vox_filter.setLeafSize(voxel_size, voxel_size, voxel_size);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pcd_tmp(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr pcd_tmp(new pcl::PointCloud<pcl::PointXYZI>);
   vox_filter.filter(*pcd_tmp);
   return pcd_tmp;
 }
@@ -248,7 +248,7 @@ void map_callback(const std_msgs::String::Ptr& msg_ptr)
   }
 
   std::lock_guard<std::mutex> lock(mutex);
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>(map_file_dir + msg_ptr->data, *global_map) == -1)
+  if (pcl::io::loadPCDFile<pcl::PointXYZI>(map_file_dir + msg_ptr->data, *global_map) == -1)
   {
     ROS_ERROR("地图加载失败，无效的路径!!!");
     return;
@@ -271,8 +271,8 @@ void map_callback(const std_msgs::String::Ptr& msg_ptr)
   }
 }
 
-matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_scan,
-                                      pcl::PointCloud<pcl::PointXYZ>::Ptr pc_map, Eigen::Matrix4d& initial_guess,
+matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZI>::Ptr& pc_scan,
+                                      pcl::PointCloud<pcl::PointXYZI>::Ptr pc_map, Eigen::Matrix4d& initial_guess,
                                       int scale)
 {
   matching_result res;
@@ -363,11 +363,11 @@ bool global_localization(Eigen::Matrix4d& pose_estimation)
   }
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr detect_iss_keypoints(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+pcl::PointCloud<pcl::PointXYZI>::Ptr detect_iss_keypoints(pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud)
 {
-  static pcl::search::KdTree<pcl::PointXYZ>::Ptr iss_tree(new pcl::search::KdTree<pcl::PointXYZ>());
-  static pcl::PointCloud<pcl::PointXYZ>::Ptr iss_keypoints(new pcl::PointCloud<pcl::PointXYZ>());
-  static pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> iss_detector;
+  static pcl::search::KdTree<pcl::PointXYZI>::Ptr iss_tree(new pcl::search::KdTree<pcl::PointXYZI>());
+  static pcl::PointCloud<pcl::PointXYZI>::Ptr iss_keypoints(new pcl::PointCloud<pcl::PointXYZI>());
+  static pcl::ISSKeypoint3D<pcl::PointXYZI, pcl::PointXYZI> iss_detector;
 
   iss_detector.setInputCloud(cloud);
   iss_detector.setSearchMethod(iss_tree);
@@ -489,11 +489,11 @@ void add_keyframe()
     }
   }
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr temp_map(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr temp_map(new pcl::PointCloud<pcl::PointXYZI>);
   for (auto& kf : keyframes)
   {
     Eigen::Matrix4d trans = T_base_to_odom * se3_inverse(kf.pose_in_odom);
-    pcl::PointCloud<pcl::PointXYZ> trans_cloud;
+    pcl::PointCloud<pcl::PointXYZI> trans_cloud;
     pcl::transformPointCloud(*kf.feature_points_ptr, trans_cloud, trans);
     *temp_map += trans_cloud;
   }
