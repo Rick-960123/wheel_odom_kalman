@@ -1,0 +1,7 @@
+<launch>
+    <!-- 新建一个空文件夹，将两张地图放入文件夹，将路径填入“workspace”； 填入“变换矩阵初值” 和 “共视区域中心点在target地图的坐标”-->
+    <!-- 合并后的地图及过程文件会生成在 workspace 文件夹-->
+    <rosparam command="load" file="$(find wheel_odom_kalman)/config/merge_map.yaml"/>
+    <node pkg="wheel_odom_kalman" type="merge_map" name="merge_map" output="screen"/>
+</launch>
+  
