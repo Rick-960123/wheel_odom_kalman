@@ -31,6 +31,23 @@ int main()
   croped_center << 24, 0, 0;
   float vovel_size = 0.2;
 
+  setlocale(LC_CTYPE, "zh_CN.utf8");
+  ros::init(argc, argv, "merge_map");
+
+  ros::NodeHandle private_nh("~");
+
+  private_nh.param<std::string>("workspace", ws, "/tmp/");
+  private_nh.param<std::string>("source_pcd_name", source_pcd_name, "");
+  private_nh.param<std::string>("target_pcd_name", target_pcd_name, "");
+  private_nh.param<float>("vovel_size", vovel_size, 0.2);
+
+  std::vector<float> initial_guess_vec, croped_center_vec;
+
+  private_nh.param<std::vector<float>>("initial_guess", initial_guess_vec, std::vector<float>());
+  private_nh.param<std::vector<float>>("croped_center", croped_center_vec, std::vector<float>());
+  initial_guess = Eigen::Map<const Eigen::Matrix<float, 4, 4>>(initial_guess_vec.data());
+  croped_center = Eigen::Map<const Eigen::Matrix<float, 3, 1>>(croped_center_vec.data());
+
   pcl::PointCloud<pcl::PointXYZI>::Ptr source(new pcl::PointCloud<pcl::PointXYZI>);
   if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + source_pcd_name, *source) == -1)
   {
@@ -55,25 +72,6 @@ int main()
   pcl::transformPointCloud(*voxeled_source, *trans_source, initial_guess);
   pcl::io::savePCDFile<pcl::PointXYZI>(ws + "trans_source.pcd", *trans_source);
 
-  // // 定义截取的原点和半径
-  // pcl::PointXYZI center;  // 截取原点
-  // center.x = -28;
-  // center.y = 10;
-  // center.z = -1;
-  // float radius = 1.0;  // 截取半径
-
-  // // 创建RadiusOutlierRemoval滤波器对象
-  // pcl::RadiusOutlierRemoval<pcl::PointXYZI> radius_filter;
-  // radius_filter.setInputCloud(target);
-  // radius_filter.setRadiusSearch(radius);
-  // radius_filter.setNegative(true);  // 设置为true以保留指定半径范围内的点云
-
-  // // 执行点云截取操作
-  // radius_filter.filter(*filtered_cloud);
-
-  // // 保存截取后的点云
-  // pcl::io::savePCDFile<pcl::PointXYZI>("/home/zhen/Rosbag/test_pcd/filtered_cloud.pcd", *filtered_cloud);
-
   pcl::PointCloud<pcl::PointXYZI>::Ptr croped_target(new pcl::PointCloud<pcl::PointXYZI>);
   pcl::PointCloud<pcl::PointXYZI>::Ptr croped_source(new pcl::PointCloud<pcl::PointXYZI>);
   pcl::CropBox<pcl::PointXYZI> crop_filter;
@@ -96,9 +94,9 @@ int main()
   pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI> gicp;
   gicp.setInputSource(croped_source);
   gicp.setInputTarget(croped_target);
-  gicp.setMaximumIterations(500);          // 设置最大迭代次数
-  gicp.setTransformationEpsilon(1e-8);     // 设置收敛条件
-  gicp.setEuclideanFitnessEpsilon(0.001);  // 设置配准误差
+  gicp.setMaximumIterations(500);
+  gicp.setTransformationEpsilon(1e-8);
+  gicp.setEuclideanFitnessEpsilon(0.001);
   std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
   pcl::PointCloud<pcl::PointXYZI> aligned_cloud;
   Eigen::Quaternionf quaternion(0.52532199, 0., 0., 0.85090352);
@@ -121,13 +119,12 @@ int main()
   pcl::PointCloud<pcl::PointXYZI> trans_cloud;
   gicp2.setInputSource(trans_source);
   gicp2.setInputTarget(target);
-  gicp2.setMaximumIterations(500);          // 设置最大迭代次数
-  gicp2.setTransformationEpsilon(1e-8);     // 设置收敛条件
-  gicp2.setEuclideanFitnessEpsilon(0.001);  // 设置配准误差
+  gicp2.setMaximumIterations(500);
+  gicp2.setTransformationEpsilon(1e-8);
+  gicp2.setEuclideanFitnessEpsilon(0.001);
   Eigen::Matrix4f trans = gicp.getFinalTransformation();
   gicp2.align(trans_cloud, trans);
 
-  // 输出配准结果
   std::cout << "trans_cloud: " << trans_cloud.size() << std::endl;
   std::cout << "source: " << source->size() << std::endl;
   std::cout << "是否收敛: " << gicp2.hasConverged() << std::endl;
@@ -137,41 +134,5 @@ int main()
 
   *target += trans_cloud;
   pcl::io::savePCDFileBinary(ws + "merged_map.pcd", *target);
-
-  // // // 创建NDT对象并设置参数
-  // pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt;
-  // ndt.setResolution(1.0);            // 设置NDT的体素分辨率
-  // ndt.setMaximumIterations(100000);  // 设置最大迭代次数
-
-  // // // 设置目标点云作为参考点云
-  // ndt.setInputTarget(target);
-
-  // // // 设置源点云作为输入点云，并执行配准
-  // ndt.setInputSource(source);
-  // // // 获取当前时间点
-  // std::chrono::steady_clock::time_point start_ndt = std::chrono::steady_clock::now();
-
-  // ndt.align(aligned_cloud, initial_guess);
-
-  // // // 获取当前时间点
-  // std::chrono::steady_clock::time_point end_ndt = std::chrono::steady_clock::now();
-
-  // // // 计算时间差（以毫秒为单位）
-  // std::chrono::duration<double, std::milli> duration_ms_ndt = end_ndt - start_ndt;
-
-  // // // 打印时间差
-  // std::cout << "时间差（毫秒）: " << duration_ms_ndt.count() << "ms" << std::endl;
-  // // 输出配准结果及变换矩阵
-  // std::cout << "配准是否成功：" << ndt.hasConverged() << std::endl;
-  // std::cout << "变换矩阵：" << std::endl << ndt.getFinalTransformation() << std::endl;
-  // pcl::io::savePCDFileBinary("/home/zhen/Rosbag/test_pcd/ndt_aligned_cloud.pcd", aligned_cloud);
-
-  // Eigen::Vector3f euler_angles = initial_guess.block<3, 3>(0, 0).eulerAngles(2, 1, 0);  // 顺序为 ZYX
-
-  // // 输出欧拉角
-  // std::cout << "Roll: " << euler_angles(2) << std::endl;
-  // std::cout << "Pitch: " << euler_angles(1) << std::endl;
-  // std::cout << "Yaw: " << euler_angles(0) << std::endl;
-
   return 0;
 }
