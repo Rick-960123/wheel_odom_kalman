@@ -22,31 +22,29 @@ void filter_points(pcl::PointCloud<pcl::PointXYZI>::Ptr& input, pcl::PointCloud<
 
 int main(int argc, char** argv)
 {
-  std::string ws = "/home/justin/zhenrobot/map/korea/";
-  std::string source_pcd_name = "GlobalMap.pcd";
-  std::string target_pcd_name = "alleyway.pcd";
-  Eigen::Matrix4f initial_guess;
-  Eigen::Vector3f croped_center;
-  initial_guess << -0.96, 0.249, 0.0, 9.5, -0.2, -0.96, 0.000, 1.096, 0.0, 0.00, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-  croped_center << 24, 0, 0;
-  float vovel_size = 0.2;
 
   setlocale(LC_CTYPE, "zh_CN.utf8");
   ros::init(argc, argv, "merge_map");
-
   ros::NodeHandle private_nh("~");
+
+  std::string ws;
+  std::string source_pcd_name;
+  std::string target_pcd_name;
+  Eigen::Matrix4f initial_guess;
+  Eigen::Vector3f croped_center;
+  float vovel_size;
+  std::vector<float> initial_guess_vec, croped_center_vec;
+
 
   private_nh.param<std::string>("workspace", ws, "/tmp/");
   private_nh.param<std::string>("source_pcd_name", source_pcd_name, "");
   private_nh.param<std::string>("target_pcd_name", target_pcd_name, "");
   private_nh.param<float>("vovel_size", vovel_size, 0.2);
-
-  std::vector<float> initial_guess_vec, croped_center_vec;
-
   private_nh.param<std::vector<float>>("initial_guess", initial_guess_vec, std::vector<float>());
   private_nh.param<std::vector<float>>("croped_center", croped_center_vec, std::vector<float>());
   initial_guess = Eigen::Map<const Eigen::Matrix<float, 4, 4>>(initial_guess_vec.data());
   croped_center = Eigen::Map<const Eigen::Matrix<float, 3, 1>>(croped_center_vec.data());
+
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr source(new pcl::PointCloud<pcl::PointXYZI>);
   if (pcl::io::loadPCDFile<pcl::PointXYZI>(ws + source_pcd_name, *source) == -1)
