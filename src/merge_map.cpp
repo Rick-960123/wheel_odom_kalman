@@ -1,12 +1,12 @@
 #include <iostream>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/point_types.h>
 #include <pcl/registration/gicp.h>
 #include <pcl/registration/ndt.h>
 #include <pcl/io/pcd_io.h>
 #include <chrono>
+#include <ros/ros.h>
 
 void filter_points(pcl::PointCloud<pcl::PointXYZI>::Ptr& input, pcl::PointCloud<pcl::PointXYZI>::Ptr& output,
                    float scale = 0.2)
@@ -14,13 +14,13 @@ void filter_points(pcl::PointCloud<pcl::PointXYZI>::Ptr& input, pcl::PointCloud<
   // 创建Voxel Grid滤波器对象
   pcl::VoxelGrid<pcl::PointXYZI> pcl_filter;
   pcl_filter.setInputCloud(input);
-  //   pcl_filter.setLeafSize(0.1f, 0.1, 0.1f);
+  // pcl_filter.setLeafSize(0.1f, 0.1, 0.1f);
   pcl_filter.setLeafSize(scale, scale, scale);
   // pcl_filter.setLeafSize(0.4f, 0.4f, 0.4f);
   pcl_filter.filter(*output);
 }
 
-int main()
+int main(int argc, char** argv)
 {
   std::string ws = "/home/justin/zhenrobot/map/korea/";
   std::string source_pcd_name = "GlobalMap.pcd";
