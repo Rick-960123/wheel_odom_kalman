@@ -1,10 +1,10 @@
 #  新建一个空文件夹，将两张地图放入文件夹，将路径填入“workspace"
 #  填入“变换矩阵初值” 和 “共视区域中心点在target地图的坐标”
 #  合并后的地图及过程文件会生成在 workspace 文件夹-->
-workspace: "/home/justin/zhenrobot/map/korea/"
+workspace: "/home/justin/zhenrobot/map/105/"
 source_pcd_name: "GlobalMap.pcd"
-target_pcd_name: "alleyway.pcd"
-initial_guess: [-0.96, 0.249, 0.0, 9.5, -0.2, -0.96, 0.000, 1.096, 0.0, 0.00, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-croped_center: [24, 0, 0]
+target_pcd_name: "105_12.pcd"
+initial_guess: [-0.6892, -0.724, 0.0, 29.57, 0.724, -0.6892, 0.0, -140.25, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+croped_center: [25, -137, 0]
 vovel_size: 0.2
   

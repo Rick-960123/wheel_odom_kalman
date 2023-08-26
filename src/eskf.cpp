@@ -22,11 +22,11 @@ void init_eskf()
   n.param<std::string>("/robot_id", robot_id, "ZR1001");
   n.param<std::string>(robot_id + "/imu0", imu_name, "imu0");
   n.param<std::vector<double>>(robot_id + "/" + imu_name + "/T_i_b", V_T_i_b, std::vector<double>());
-  T_i_b = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(V_T_i_b.data());
+  T_i_b = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(V_T_i_b.data());
   n.param<std::vector<double>>(robot_id + "/" + imu_name + "/acc_sm", V_R_acc_mea, std::vector<double>());
-  R_acc_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3>>(V_R_acc_mea.data());
+  R_acc_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(V_R_acc_mea.data());
   n.param<std::vector<double>>(robot_id + "/" + imu_name + "/gyr_sm", V_R_gyr_mea, std::vector<double>());
-  R_gyr_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3>>(V_R_gyr_mea.data());
+  R_gyr_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(V_R_gyr_mea.data());
 
   n.param<std::vector<double>>(robot_id + "/" + imu_name + "/acc_bias", acc_bias, std::vector<double>());
   n.param<std::vector<double>>(robot_id + "/" + imu_name + "/gyr_bias", gyr_bias, std::vector<double>());
@@ -123,11 +123,11 @@ ESKF::ESKF(ros::NodeHandle& n) {
     n.param<std::string>("/robot_id", robot_id, "ZR1001");
     n.param<std::string>(robot_id + "/imu0", imu_name, "imu0");
     n.param<std::vector<double>>(robot_id + "/" + imu_name + "/T_i_b", V_T_i_b, std::vector<double>());
-    T_i_b = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(V_T_i_b.data());
+    T_i_b = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(V_T_i_b.data());
     n.param<std::vector<double>>(robot_id + "/" + imu_name + "/acc_sm", V_R_acc_mea, std::vector<double>());
-    R_acc_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3>>(V_R_acc_mea.data());
+    R_acc_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(V_R_acc_mea.data());
     n.param<std::vector<double>>(robot_id + "/" + imu_name + "/gyr_sm", V_R_gyr_mea, std::vector<double>());
-    R_gyr_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3>>(V_R_gyr_mea.data());
+    R_gyr_mea = Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(V_R_gyr_mea.data());
 
     n.param<std::vector<double>>(robot_id + "/" + imu_name + "/acc_bias", acc_bias, std::vector<double>());
     n.param<std::vector<double>>(robot_id + "/" + imu_name + "/gyr_bias", gyr_bias, std::vector<double>());

@@ -1,6 +1,5 @@
 #include <chrono>
 #include <cstddef>
-#include <eigen3/Eigen/src/Core/Matrix.h>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -558,8 +557,9 @@ void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr& msg_ptr)
   T_base_to_wheel_odom.block<3, 3>(0, 0) = quaternion.matrix();
   T_base_to_wheel_odom.block<3, 1>(0, 3) = translation;
 
-  Eigen::Vector2d vec(msg_ptr->twist.twist.linear.x, msg_ptr->twist.twist.linear.y);
-  Twist_in_base_link(0) = vec.normalize();
+  Eigen::Vector2d vec;
+  vec << msg_ptr->twist.twist.linear.x, msg_ptr->twist.twist.linear.y;
+  Twist_in_base_link(0) = vec.norm();
   Twist_in_base_link(1) = msg_ptr->twist.twist.angular.z;
 }
 
@@ -699,8 +699,8 @@ int main(int argc, char** argv)
   private_nh.param<std::vector<double>>(prefix + "/T_base_to_lidar", T_base_to_lidar_vector, std::vector<double>());
   private_nh.param<std::vector<double>>(prefix + "/T_imu_to_lidar", T_imu_to_lidar_vector, std::vector<double>());
 
-  T_base_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(T_base_to_lidar_vector.data());
-  T_imu_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4>>(T_imu_to_lidar_vector.data());
+  T_base_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T_base_to_lidar_vector.data());
+  T_imu_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T_imu_to_lidar_vector.data());
 
   private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.2);
   private_nh.param<double>("/sub_map_size", sub_map_size, 100);
