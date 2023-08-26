@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cstddef>
+#include <eigen3/Eigen/src/Core/Matrix.h>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -73,6 +74,8 @@ static std::string map_file_dir = "/home/justin/zhenrobot/map/";
 Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom,
     T_base_to_lidar, T_imu_to_lidar;
 
+Eigen::Vector2d Twist_in_base_link;
+
 pcl::PointCloud<pcl::PointXYZI>::Ptr global_map(new pcl::PointCloud<pcl::PointXYZI>),
     sub_map(new pcl::PointCloud<pcl::PointXYZI>), keyframes_pcl(new pcl::PointCloud<pcl::PointXYZI>),
     cur_scan_in_odom(new pcl::PointCloud<pcl::PointXYZI>), cur_keypoints_in_odom(new pcl::PointCloud<pcl::PointXYZI>);
@@ -134,7 +137,7 @@ static std::thread main_thread, initial_thread;
 static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
 
 pcl::PointCloud<pcl::PointXYZI>::Ptr voxel_down_sample(pcl::PointCloud<pcl::PointXYZI>::Ptr& pcd,
-                                                      const double& voxel_size)
+                                                       const double& voxel_size)
 {
   vox_filter.setInputCloud(pcd);
   vox_filter.setLeafSize(voxel_size, voxel_size, voxel_size);
@@ -152,40 +155,21 @@ Eigen::Matrix4d se3_inverse(const Eigen::Matrix4d& T)
 
 tf::Transform eigenMatrix4dToTfTransform(const Eigen::Matrix4d& eigen_mat)
 {
-    Eigen::Matrix3d eigen_rot = eigen_mat.block<3, 3>(0, 0);
-    Eigen::Vector3d eigen_trans = eigen_mat.block<3, 1>(0, 3);
-    Eigen::Quaterniond eigen_quat(eigen_rot);
-    tf::Transform tf_transform;
-    tf_transform.setOrigin(tf::Vector3(eigen_trans(0), eigen_trans(1), eigen_trans(2)));
-    tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
-    return tf_transform;
+  Eigen::Matrix3d eigen_rot = eigen_mat.block<3, 3>(0, 0);
+  Eigen::Vector3d eigen_trans = eigen_mat.block<3, 1>(0, 3);
+  Eigen::Quaterniond eigen_quat(eigen_rot);
+  tf::Transform tf_transform;
+  tf_transform.setOrigin(tf::Vector3(eigen_trans(0), eigen_trans(1), eigen_trans(2)));
+  tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
+  return tf_transform;
 }
 void pub_topic()
 {
   auto cur_time = ros::Time::now();
   static tf::TransformBroadcaster br;
-  // Eigen::Quaterniond q;
-  // q = Eigen::Quaterniond(T_odom_to_map.block<3, 3>(0, 0));
-  // q.normalize();
-
-  // tf::Transform transform;
-  // tf::Quaternion qua;
-  // transform.setOrigin(tf::Vector3(T_odom_to_map(0, 3), T_odom_to_map(1, 3), T_odom_to_map(2, 3)));
-  // qua.setW(q.w());
-  // qua.setX(q.x());
-  // qua.setY(q.y());
-  // qua.setZ(q.z());
-  // transform.setRotation(qua);
   br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
-
-  // q = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
-  // q.normalize();
-  // transform.setOrigin(tf::Vector3(T_base_to_map(0, 3), T_base_to_map(1, 3), T_base_to_map(2, 3)));
-  // qua.setW(q.w());
-  // qua.setX(q.x());
-  // qua.setY(q.y());
-  // qua.setZ(q.z());
-  // transform.setRotation(qua);
+  br.sendTransform(
+      tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
   br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_base_to_map), cur_time, "map", "base_link"));
 
   Eigen::Quaterniond q_;
@@ -210,8 +194,8 @@ void pub_topic()
   geometry_msgs::TwistStamped twist_msg;
   twist_msg.header.stamp = cur_time;
   twist_msg.header.frame_id = "base_link";
-  twist_msg.twist.linear.x = 0.0;
-  twist_msg.twist.angular.z = 0.0;
+  twist_msg.twist.linear.x = Twist_in_base_link(0);
+  twist_msg.twist.angular.z = Twist_in_base_link(1);
   estimate_twist_pub.publish(twist_msg);
 
   sensor_msgs::PointCloud2 scan_msg, keyspoints_msg, keyframes_pcl_msg;
@@ -255,6 +239,7 @@ void reset_state()
   T_base_to_map = Eigen::Matrix4d::Identity();
   T_base_to_wheel_odom = Eigen::Matrix4d::Identity();
   T_wheel_odom_to_map = Eigen::Matrix4d::Identity();
+  Twist_in_base_link << 0.0, 0.0;
   fitness_score_threshold = use_ndt ? 0.6 : 0.4;
   keyframes.clear();
   ROS_INFO("已初始化状态变量");
@@ -572,6 +557,10 @@ void wheel_odom_callback(const nav_msgs::Odometry::ConstPtr& msg_ptr)
   wheel_odom_stamp = ros::Time::now();
   T_base_to_wheel_odom.block<3, 3>(0, 0) = quaternion.matrix();
   T_base_to_wheel_odom.block<3, 1>(0, 3) = translation;
+
+  Eigen::Vector2d vec(msg_ptr->twist.twist.linear.x, msg_ptr->twist.twist.linear.y);
+  Twist_in_base_link(0) = vec.normalize();
+  Twist_in_base_link(1) = msg_ptr->twist.twist.angular.z;
 }
 
 void points_callback(const sensor_msgs::PointCloud2::ConstPtr& msg_ptr)
