@@ -746,7 +746,7 @@ int main(int argc, char** argv)
 
   reset_state();
   check_status();
-  ros::Timer timer = private_nh.createTimer(ros::Duration(5), pub_map);
+  // ros::Timer timer = private_nh.createTimer(ros::Duration(5), pub_map);
   main_thread = std::thread(thread_fuc);
   ros::spin();
   main_thread.join();
