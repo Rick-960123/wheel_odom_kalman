@@ -160,13 +160,33 @@ tf::Transform eigenMatrix4dToTfTransform(const Eigen::Matrix4d& eigen_mat)
     tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
     return tf_transform;
 }
-
 void pub_topic()
 {
   auto cur_time = ros::Time::now();
   static tf::TransformBroadcaster br;
+  // Eigen::Quaterniond q;
+  // q = Eigen::Quaterniond(T_odom_to_map.block<3, 3>(0, 0));
+  // q.normalize();
+
+  // tf::Transform transform;
+  // tf::Quaternion qua;
+  // transform.setOrigin(tf::Vector3(T_odom_to_map(0, 3), T_odom_to_map(1, 3), T_odom_to_map(2, 3)));
+  // qua.setW(q.w());
+  // qua.setX(q.x());
+  // qua.setY(q.y());
+  // qua.setZ(q.z());
+  // transform.setRotation(qua);
   br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
-  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_wheel_odom_to_map), cur_time, "map", "wheel_odom"));
+
+  // q = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
+  // q.normalize();
+  // transform.setOrigin(tf::Vector3(T_base_to_map(0, 3), T_base_to_map(1, 3), T_base_to_map(2, 3)));
+  // qua.setW(q.w());
+  // qua.setX(q.x());
+  // qua.setY(q.y());
+  // qua.setZ(q.z());
+  // transform.setRotation(qua);
+  br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_base_to_map), cur_time, "map", "base_link"));
 
   Eigen::Quaterniond q_;
   q_ = Eigen::Quaterniond(T_base_to_map.block<3, 3>(0, 0));
