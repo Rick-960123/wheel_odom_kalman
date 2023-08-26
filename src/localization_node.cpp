@@ -92,7 +92,7 @@ static ros::Time pre_scan_time;
 static ros::Duration scan_duration;
 
 static ros::Publisher points_map_pub, current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub,
-    reset_wheel_odom_pub, reset_odom_pub, sound_pub, relocal_flag_pub, estimate_twist_pub, cur_scan_pub,
+    reset_wheel_odom_pub, reset_odom_pub, sound_pub, relocal_flag_pub, current_velocity_pub, cur_scan_pub,
     cur_keypoints_pub, keyframes_pcl_pub, localization_status_pub;
 
 struct keyframe
@@ -195,7 +195,7 @@ void pub_topic()
   twist_msg.header.frame_id = "base_link";
   twist_msg.twist.linear.x = Twist_in_base_link(0);
   twist_msg.twist.angular.z = Twist_in_base_link(1);
-  estimate_twist_pub.publish(twist_msg);
+  current_velocity_pub.publish(twist_msg);
 
   sensor_msgs::PointCloud2 scan_msg, keyspoints_msg, keyframes_pcl_msg;
 
@@ -716,8 +716,8 @@ int main(int argc, char** argv)
   current_pose_pub = private_nh.advertise<geometry_msgs::PoseStamped>("/current_pose", 10);
   current_cov_pose_pub = private_nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/current_cov_pose", 10);
   localization_status_pub = private_nh.advertise<std_msgs::String>("/localization_status", 10);
-
-  estimate_twist_pub = private_nh.advertise<geometry_msgs::TwistStamped>("/estimate_twist", 1000);
+  current_velocity_pub = private_nh.advertise<geometry_msgs::TwistStamped>("/current_velocity", 1000);
+  
   fitness_pub = private_nh.advertise<std_msgs::Float32>("/fitness_score", 100);
   sound_pub = private_nh.advertise<std_msgs::String>("/sound_player", 10);
   reset_odom_pub = private_nh.advertise<std_msgs::Bool>("/reset_odom", 10);
