@@ -346,7 +346,7 @@ bool is_loss()
   return loss;
 }
 
-bool global_localization(Eigen::Matrix4d& pose_estimation)
+bool global_registration(Eigen::Matrix4d& pose_estimation)
 {
   crop_global_map_in_FOV(pose_estimation);
   matching_result res = registration_at_scale(cur_keypoints_in_odom, sub_map, pose_estimation, 5);
@@ -441,7 +441,7 @@ void init_function(const Eigen::Matrix4d& T_base_to_map_estimation, const std::s
   {
     Eigen::Matrix4d T_odom_to_map_estimation = T_base_to_map_estimation * se3_inverse(T_base_to_odom);
 
-    if (global_localization(T_odom_to_map_estimation))
+    if (global_registration(T_odom_to_map_estimation))
     {
       need_initial = false;
       localization_status = "success";
@@ -632,9 +632,9 @@ void check_status()
   }
 }
 
-void thread_fuc()
+void thread_registration()
 {
-  ROS_INFO("定位子线程已开启");
+  ROS_INFO("配准子线程已开启");
   ros::Rate rate(20);
   while (ros::ok())
   {
@@ -661,26 +661,15 @@ void thread_fuc()
       add_keyframe();
       if (map_loaded == 1 && !need_initial)
       {
-        global_localization(T_odom_to_map);
-        is_loss();
+        global_registration(T_odom_to_map);
       }
-      if (wheel_odom_only_flag)
-      {
-        T_base_to_map = T_wheel_odom_to_map * T_base_to_wheel_odom;
-      }
-      else
-      {
-        T_base_to_map = T_odom_to_map * T_base_to_odom;
-      }
-      pub_topic();
     }
-
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> duration_ms = end - start;
-    std::cout << "匹配消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
+    std::cout << "配准消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
     rate.sleep();
   }
-  ROS_INFO("定位子线程已退出");
+  ROS_INFO("配准子线程已退出");
 }
 
 int main(int argc, char** argv)
@@ -717,16 +706,16 @@ int main(int argc, char** argv)
   current_cov_pose_pub = private_nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("/current_cov_pose", 10);
   localization_status_pub = private_nh.advertise<std_msgs::String>("/localization_status", 10);
   current_velocity_pub = private_nh.advertise<geometry_msgs::TwistStamped>("/current_velocity", 1000);
-  
+
   fitness_pub = private_nh.advertise<std_msgs::Float32>("/fitness_score", 100);
   sound_pub = private_nh.advertise<std_msgs::String>("/sound_player", 10);
   reset_odom_pub = private_nh.advertise<std_msgs::Bool>("/reset_odom", 10);
   reset_wheel_odom_pub = private_nh.advertise<std_msgs::Bool>("/reset_wheel_odom", 10);
 
   // Subscribers
-  ros::Subscriber initialpose_sub = private_nh.subscribe("/initialpose", 1000, initialpose_callback);
-  ros::Subscriber set_map_sub = private_nh.subscribe("/set_map", 10, map_callback);
-  ros::Subscriber wheel_odom_only_sub = private_nh.subscribe("/wheel_odom_only", 10, wheel_odom_only_callback);
+  ros::Subscriber initialpose_sub = private_nh.subscribe("/initialpose", 1, initialpose_callback);
+  ros::Subscriber set_map_sub = private_nh.subscribe("/set_map", 1, map_callback);
+  ros::Subscriber wheel_odom_only_sub = private_nh.subscribe("/wheel_odom_only", 1, wheel_odom_only_callback);
 
   ros::Subscriber points_sub = private_nh.subscribe("/cloud_registered", 1, points_callback);
   ros::Subscriber gnss_sub = private_nh.subscribe("/gnss_pose", 1, gnss_callback);
@@ -736,8 +725,23 @@ int main(int argc, char** argv)
   reset_state();
   check_status();
   // ros::Timer timer = private_nh.createTimer(ros::Duration(5), pub_map);
-  main_thread = std::thread(thread_fuc);
-  ros::spin();
+  main_thread = std::thread(thread_registration);
+  ros::rate rate(20);
+  while (ros::ok())
+  {
+    ros::spinOnce();
+    is_loss();
+    if (wheel_odom_only_flag)
+    {
+      T_base_to_map = T_wheel_odom_to_map * T_base_to_wheel_odom;
+    }
+    else
+    {
+      T_base_to_map = T_odom_to_map * T_base_to_odom;
+    }
+    pub_topic();
+    rate.sleep();
+  }
   main_thread.join();
   return 0;
 }
