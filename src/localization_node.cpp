@@ -726,7 +726,7 @@ int main(int argc, char** argv)
   check_status();
   // ros::Timer timer = private_nh.createTimer(ros::Duration(5), pub_map);
   main_thread = std::thread(thread_registration);
-  ros::rate rate(20);
+  ros::Rate rate(20);
   while (ros::ok())
   {
     ros::spinOnce();
