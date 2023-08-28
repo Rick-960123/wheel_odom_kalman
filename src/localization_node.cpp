@@ -135,6 +135,27 @@ static std::mutex mutex;
 static std::thread main_thread, initial_thread;
 static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
 
+class timer
+{
+public:
+  timer()
+  {
+    start = std::chrono::steady_clock::now();
+  }
+  ~timer()
+  {
+  }
+  void print(std::string label)
+  {
+    end = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> duration_ms = end - start;
+    std::cout << label + ":消耗时间" << duration_ms.count() << "ms" << std::endl;
+  }
+
+private:
+  std::chrono::steady_clock::time_point start, end;
+};
+
 pcl::PointCloud<pcl::PointXYZI>::Ptr voxel_down_sample(pcl::PointCloud<pcl::PointXYZI>::Ptr& pcd,
                                                        const double& voxel_size)
 {
@@ -197,7 +218,12 @@ void pub_topic()
   twist_msg.twist.angular.z = Twist_in_base_link(1);
   current_velocity_pub.publish(twist_msg);
 
-  sensor_msgs::PointCloud2 scan_msg, keyspoints_msg, keyframes_pcl_msg;
+  sensor_msgs::PointCloud2 scan_msg, keyspoints_msg, keyframes_pcl_msg, sub_map_msg;
+
+  pcl::toROSMsg(*sub_map, sub_map_msg);
+  sub_map_msg.header.stamp = cur_time;
+  sub_map_msg.header.frame_id = "map";
+  sub_map_pub.publish(sub_map_msg);
 
   pcl::toROSMsg(*cur_scan_in_odom, scan_msg);
   scan_msg.header.frame_id = "camera_init";
@@ -283,7 +309,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZI>::Ptr& pc_s
   if (use_ndt)
   {
     ndt.setResolution(1.0 * scale);
-    ndt.setMaximumIterations(5);
+    ndt.setMaximumIterations(10);
     ndt.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     ndt.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
     ndt.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -294,7 +320,7 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZI>::Ptr& pc_s
   {
     icp.setInputSource(voxel_down_sample(pc_scan, scan_voxel_size * scale));
     icp.setInputTarget(voxel_down_sample(pc_map, map_voxel_size * scale));
-    icp.setMaximumIterations(5);
+    icp.setMaximumIterations(10);
     icp.setTransformationEpsilon(1e-8);
     icp.setEuclideanFitnessEpsilon(0.001);
     icp.align(*res.pcl_ptr, initial_guess.cast<float>());
@@ -306,22 +332,17 @@ matching_result registration_at_scale(pcl::PointCloud<pcl::PointXYZI>::Ptr& pc_s
 
 void crop_global_map_in_FOV(Eigen::Matrix4d& pose_estimation)
 {
+  timer tiemer;
   Eigen::Matrix4d T_base_to_map_estimation = pose_estimation * T_base_to_odom;
   Eigen::Vector4d start, end;
   start = T_base_to_map_estimation.block<4, 1>(0, 3) -
           Eigen::Vector4d(sub_map_size / 2.0, sub_map_size / 2.0, sub_map_size / 2.0, 0.0);
   end = T_base_to_map_estimation.block<4, 1>(0, 3) +
         Eigen::Vector4d(sub_map_size / 2.0, sub_map_size / 2.0, sub_map_size / 2.0, 0.0);
-
   crop_filter.setMin(start.cast<float>());
   crop_filter.setMax(end.cast<float>());
   crop_filter.filter(*sub_map);
-
-  sensor_msgs::PointCloud2 sub_map_msg;
-  pcl::toROSMsg(*sub_map, sub_map_msg);
-  sub_map_msg.header.stamp = ros::Time::now();
-  sub_map_msg.header.frame_id = "map";
-  sub_map_pub.publish(sub_map_msg);
+  tiemer.print("submap");
 }
 
 bool is_loss()
@@ -349,8 +370,10 @@ bool is_loss()
 bool global_registration(Eigen::Matrix4d& pose_estimation)
 {
   crop_global_map_in_FOV(pose_estimation);
-  matching_result res = registration_at_scale(cur_keypoints_in_odom, sub_map, pose_estimation, 5);
-  res = registration_at_scale(cur_keypoints_in_odom, sub_map, res.trans, 1);
+  timer timer;
+  matching_result res = registration_at_scale(cur_keypoints_in_odom, sub_map, pose_estimation, 1);
+  // res = registration_at_scale(cur_keypoints_in_odom, sub_map, res.trans, 1);
+  timer.print("配准");
   fitness = res.fitness;
   if (fitness < fitness_score_threshold)
   {
@@ -638,7 +661,6 @@ void thread_registration()
   ros::Rate rate(20);
   while (ros::ok())
   {
-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     if (wheel_odom_only_flag != last_wheel_odom_only_flag)
     {
       last_wheel_odom_only_flag = wheel_odom_only_flag;
@@ -664,9 +686,6 @@ void thread_registration()
         global_registration(T_odom_to_map);
       }
     }
-    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> duration_ms = end - start;
-    std::cout << "配准消耗时间（毫秒）: " << duration_ms.count() << "ms" << std::endl;
     rate.sleep();
   }
   ROS_INFO("配准子线程已退出");
@@ -691,9 +710,9 @@ int main(int argc, char** argv)
   T_base_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T_base_to_lidar_vector.data());
   T_imu_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T_imu_to_lidar_vector.data());
 
-  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.2);
+  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.4);
   private_nh.param<double>("/sub_map_size", sub_map_size, 100);
-  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.2);
+  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.4);
   private_nh.param<bool>("/use_ndt", use_ndt, false);
 
   // Publishers
