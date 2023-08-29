@@ -1,57 +1,4 @@
-#include <chrono>
-#include <cstddef>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <memory>
-#include <vector>
-#include <thread>
-#include <mutex>
-#include <deque>
-#include <unistd.h>
-#include <stdlib.h>
-
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <fmt/core.h>
-
-#include <ros/ros.h>
-
-#include <eigen3/Eigen/Core>
-#include <eigen3/Eigen/Dense>
-#include <sophus/se3.hpp>
-#include <sophus/so3.hpp>
-
-#include <sensor_msgs/PointCloud2.h>
-#include <nav_msgs/Odometry.h>
-#include <std_msgs/Bool.h>
-#include <std_msgs/Float32.h>
-#include <std_msgs/Int32.h>
-#include <std_msgs/String.h>
-
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-#include <geometry_msgs/TwistStamped.h>
-
-#include <tf/tf.h>
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_datatypes.h>
-#include <tf/transform_listener.h>
-
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/crop_box.h>
-#include <pcl/point_types.h>
-#include <pcl/registration/icp.h>
-#include <pcl/registration/ndt.h>
-#include <pcl/io/io.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/keypoints/iss_3d.h>
-#include <pcl/keypoints/harris_3d.h>
-#include <pcl_ros/point_cloud.h>
-#include <pcl_ros/transforms.h>
+#include "zr_common.h"
 
 #define PI (3.1415926)
 static int map_loaded = 0;
@@ -70,19 +17,13 @@ static std::string current_map_name = "";
 static std::string status_file_dir = "/home/justin/zhenrobot/.status/";
 static std::string map_file_dir = "/home/justin/zhenrobot/map/";
 
-Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom,
-    T_base_to_lidar, T_imu_to_lidar;
+Eigen::Matrix4d T_odom_to_map, T_wheel_odom_to_map, T_base_to_map, T_base_to_odom, T_base_to_wheel_odom;
 
 Eigen::Vector2d Twist_in_base_link;
 
 pcl::PointCloud<pcl::PointXYZI>::Ptr global_map(new pcl::PointCloud<pcl::PointXYZI>),
     sub_map(new pcl::PointCloud<pcl::PointXYZI>), keyframes_pcl(new pcl::PointCloud<pcl::PointXYZI>),
     cur_scan_in_odom(new pcl::PointCloud<pcl::PointXYZI>), cur_keypoints_in_odom(new pcl::PointCloud<pcl::PointXYZI>);
-
-static pcl::CropBox<pcl::PointXYZI> crop_filter;
-static pcl::IterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI> icp;
-static pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI> ndt;
-static pcl::VoxelGrid<pcl::PointXYZI> vox_filter;
 
 static geometry_msgs::PoseStamped current_pose;
 static geometry_msgs::PoseWithCovarianceStamped ndt_cov_msg;
@@ -94,6 +35,8 @@ static ros::Duration scan_duration;
 static ros::Publisher points_map_pub, current_cov_pose_pub, sub_map_pub, current_pose_pub, fitness_pub,
     reset_wheel_odom_pub, reset_odom_pub, sound_pub, relocal_flag_pub, current_velocity_pub, cur_scan_pub,
     cur_keypoints_pub, keyframes_pcl_pub, localization_status_pub;
+
+ZRParameters zr_param;
 
 struct keyframe
 {
@@ -132,59 +75,59 @@ struct matching_result
 
 static std::deque<keyframe> keyframes;
 static std::mutex mutex;
-static std::thread main_thread, initial_thread;
+static std::thread reg_thread, initial_thread;
 static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
 
-class timer
+void reset_state()
 {
-public:
-  timer()
-  {
-    start = std::chrono::steady_clock::now();
-  }
-  ~timer()
-  {
-  }
-  void print(std::string label)
-  {
-    end = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> duration_ms = end - start;
-    std::cout << label + ":消耗时间" << duration_ms.count() << "ms" << std::endl;
-  }
-
-private:
-  std::chrono::steady_clock::time_point start, end;
-};
-
-pcl::PointCloud<pcl::PointXYZI>::Ptr voxel_down_sample(pcl::PointCloud<pcl::PointXYZI>::Ptr& pcd,
-                                                       const double& voxel_size)
-{
-  vox_filter.setInputCloud(pcd);
-  vox_filter.setLeafSize(voxel_size, voxel_size, voxel_size);
-  pcl::PointCloud<pcl::PointXYZI>::Ptr pcd_tmp(new pcl::PointCloud<pcl::PointXYZI>);
-  vox_filter.filter(*pcd_tmp);
-  return pcd_tmp;
+  need_initial = true;
+  loss_cnt = 0;
+  T_odom_to_map = Eigen::Matrix4d::Identity();
+  T_base_to_odom = Eigen::Matrix4d::Identity();
+  T_base_to_map = Eigen::Matrix4d::Identity();
+  T_base_to_wheel_odom = Eigen::Matrix4d::Identity();
+  T_wheel_odom_to_map = Eigen::Matrix4d::Identity();
+  Twist_in_base_link << 0.0, 0.0;
+  fitness_score_threshold = use_ndt ? 0.6 : 0.4;
+  keyframes.clear();
+  ROS_INFO("已初始化状态变量");
 }
 
-Eigen::Matrix4d se3_inverse(const Eigen::Matrix4d& T)
+bool is_loss()
 {
-  Sophus::SE3d T_tmp(T);
-  Sophus::SE3d T_inverse = T_tmp.inverse();
-  return T_inverse.matrix();
+  bool loss = false;
+  localization_status = "success";
+  if (cur_keypoints_in_odom->width == 0 || sub_map->width == 0)
+  {
+    loss = true;
+    ROS_ERROR("无效点云或地图!!!");
+  }
+  if (loss_cnt > 50)
+  {
+    loss = true;
+  }
+  if (loss)
+  {
+    localization_status = "fail";
+    reset_state();
+    ROS_ERROR("定位丢失");
+  }
+  return loss;
 }
 
-tf::Transform eigenMatrix4dToTfTransform(const Eigen::Matrix4d& eigen_mat)
+
+void pub_status(const ros::TimerEvent& evt)
 {
-  Eigen::Matrix3d eigen_rot = eigen_mat.block<3, 3>(0, 0);
-  Eigen::Vector3d eigen_trans = eigen_mat.block<3, 1>(0, 3);
-  Eigen::Quaterniond eigen_quat(eigen_rot);
-  tf::Transform tf_transform;
-  tf_transform.setOrigin(tf::Vector3(eigen_trans(0), eigen_trans(1), eigen_trans(2)));
-  tf_transform.setRotation(tf::Quaternion(eigen_quat.x(), eigen_quat.y(), eigen_quat.z(), eigen_quat.w()));
-  return tf_transform;
-}
-void pub_topic()
-{
+  is_loss();
+  if (wheel_odom_only_flag)
+  {
+    T_base_to_map = T_wheel_odom_to_map * T_base_to_wheel_odom * se3_inverse(zr_param.T_enc_to_base);
+  }
+  else
+  {
+    T_base_to_map = T_odom_to_map * T_base_to_odom * se3_inverse(zr_param.T_imu_to_base);
+  }
+
   auto cur_time = ros::Time::now();
   static tf::TransformBroadcaster br;
   br.sendTransform(tf::StampedTransform(eigenMatrix4dToTfTransform(T_odom_to_map), cur_time, "map", "camera_init"));
@@ -253,21 +196,6 @@ void pub_map(const ros::TimerEvent& evt)
     map_msg.header.stamp = ros::Time::now();
     points_map_pub.publish(map_msg);
   }
-}
-
-void reset_state()
-{
-  need_initial = true;
-  loss_cnt = 0;
-  T_odom_to_map = Eigen::Matrix4d::Identity();
-  T_base_to_odom = Eigen::Matrix4d::Identity();
-  T_base_to_map = Eigen::Matrix4d::Identity();
-  T_base_to_wheel_odom = Eigen::Matrix4d::Identity();
-  T_wheel_odom_to_map = Eigen::Matrix4d::Identity();
-  Twist_in_base_link << 0.0, 0.0;
-  fitness_score_threshold = use_ndt ? 0.6 : 0.4;
-  keyframes.clear();
-  ROS_INFO("已初始化状态变量");
 }
 
 void map_callback(const std_msgs::String::Ptr& msg_ptr)
@@ -343,28 +271,6 @@ void crop_global_map_in_FOV(Eigen::Matrix4d& pose_estimation)
   crop_filter.setMax(end.cast<float>());
   crop_filter.filter(*sub_map);
   tiemer.print("submap");
-}
-
-bool is_loss()
-{
-  bool loss = false;
-  localization_status = "success";
-  if (cur_keypoints_in_odom->width == 0 || sub_map->width == 0)
-  {
-    loss = true;
-    ROS_ERROR("无效点云或地图!!!");
-  }
-  if (loss_cnt > 50)
-  {
-    loss = true;
-  }
-  if (loss)
-  {
-    localization_status = "fail";
-    reset_state();
-    ROS_ERROR("定位丢失");
-  }
-  return loss;
 }
 
 bool global_registration(Eigen::Matrix4d& pose_estimation)
@@ -697,22 +603,11 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "pointcloud_odom");
 
   ros::NodeHandle private_nh("~");
+  zr_param.get_paramters(private_nh);
 
-  std::string robot_id;
-  private_nh.param<std::string>("/robot_id", robot_id, "ZR1001");
-
-  std::string prefix = "/lidar";
-  std::vector<double> T_base_to_lidar_vector, T_imu_to_lidar_vector;
-
-  private_nh.param<std::vector<double>>(prefix + "/T_base_to_lidar", T_base_to_lidar_vector, std::vector<double>());
-  private_nh.param<std::vector<double>>(prefix + "/T_imu_to_lidar", T_imu_to_lidar_vector, std::vector<double>());
-
-  T_base_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T_base_to_lidar_vector.data());
-  T_imu_to_lidar = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(T_imu_to_lidar_vector.data());
-
-  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.4);
-  private_nh.param<double>("/sub_map_size", sub_map_size, 100);
-  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.4);
+  private_nh.param<double>("/map_voxel_size", map_voxel_size, 0.3);
+  private_nh.param<double>("/sub_map_size", sub_map_size, 50);
+  private_nh.param<double>("/scan_voxel_size", scan_voxel_size, 0.3);
   private_nh.param<bool>("/use_ndt", use_ndt, false);
 
   // Publishers
@@ -744,23 +639,9 @@ int main(int argc, char** argv)
   reset_state();
   check_status();
   // ros::Timer timer = private_nh.createTimer(ros::Duration(5), pub_map);
-  main_thread = std::thread(thread_registration);
-  ros::Rate rate(20);
-  while (ros::ok())
-  {
-    ros::spinOnce();
-    is_loss();
-    if (wheel_odom_only_flag)
-    {
-      T_base_to_map = T_wheel_odom_to_map * T_base_to_wheel_odom;
-    }
-    else
-    {
-      T_base_to_map = T_odom_to_map * T_base_to_odom;
-    }
-    pub_topic();
-    rate.sleep();
-  }
-  main_thread.join();
+  ros::Timer timer = private_nh.createTimer(ros::Duration(0.1), pub_status);
+  reg_thread = std::thread(thread_registration);
+  ros::spin();
+  reg_thread.join();
   return 0;
 }
